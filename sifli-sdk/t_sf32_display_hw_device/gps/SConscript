@@ -1,0 +1,37 @@
+import os
+from building import *
+
+# 获取当前目录路径 (即 imu/ 目录)
+cwd = GetCurrentDir()
+
+# 初始化一个空列表，用于存放所有收集到的目标文件
+objs = []
+
+# objs += Glob('*.c')
+# CPPPATH = [cwd]
+
+# 遍历当前目录下的所有文件
+list = os.listdir(cwd)
+
+# 遍历列表中的每一项
+for item in list:
+    # 检查该项是否是一个文件夹
+    # os.path.isdir() 是必要的，可以避免误判文件名为文件夹
+    if os.path.isdir(os.path.join(cwd, item)):
+        # 如果是文件夹，则检查该文件夹内是否存在 'SConscript' 文件
+        # os.path.isfile() 用于检查文件是否存在
+        if os.path.isfile(os.path.join(cwd, item, 'SConscript')):
+            # 如果存在 SConscript 文件，则执行它
+            # SConscript() 函数会返回子 SConscript 中定义的objs列表
+            # 使用 '+' 运算符将返回的列表合并到主objs列表中
+            objs += SConscript(os.path.join(item, 'SConscript'))
+
+# 将最终收集到的所有目标文件列表返回给上层构建系统
+# Return('objs')
+
+src   = []
+inc = [cwd]
+src += Glob('./*.c')
+src += objs
+group = DefineGroup('L76K', src, depend = ['PKG_USING_L76K'], CPPPATH = inc )
+Return('group')

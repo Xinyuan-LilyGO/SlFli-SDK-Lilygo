@@ -1,0 +1,29 @@
+# import os
+# from building import *
+
+# objs = []
+# cwd  = GetCurrentDir()
+# list = os.listdir(cwd)
+
+# for item in list:
+#     if os.path.isfile(os.path.join(cwd, item, 'SConscript')):
+#         objs = objs + SConscript(os.path.join(item, 'SConscript'))
+
+# Return('objs')
+
+
+from building import *
+import rtconfig
+
+src = []
+inc = []
+
+cwd     = GetCurrentDir()
+
+src += Glob('./src/*.c')
+
+inc += [cwd + '/inc']
+
+group = DefineGroup('INPUT_KEY_BOARD', src, depend = ['PKG_USING_PKG_KEY_BOARD'], CPPPATH = inc)
+
+Return('group')

@@ -1,0 +1,13 @@
+config PKG_USING_TINYGPS
+    bool "Enable GPS module based on TinyGPS library"
+    default n
+    select PKG_USING_UART
+    help
+        Enable TinyGPS library.
+
+    # if  PKG_USING_TINYGPS
+    
+    #     config GPS_UART_BUS_NAME
+    #         string "UART bus name"
+    #         default "uart2"
+    # endif

@@ -1,0 +1,5 @@
+menu "IO Expand configuration"
+
+source "$SIFLI_SDK/t_sf32_display_hw_device/io_expand/xl9555/Kconfig"
+
+endmenu

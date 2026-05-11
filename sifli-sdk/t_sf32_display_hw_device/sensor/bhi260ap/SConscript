@@ -1,0 +1,20 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = Glob('*.c')
+inc = []
+
+CPPPATH = [cwd]
+
+src += Glob('./src/*.c')
+
+inc += [cwd + '/inc']
+
+inc += [cwd + '/firmware']
+inc += [cwd + '/firmware/bhi260ap']
+inc += [cwd + '/firmware/bhi260ap_klio']
+inc += [cwd + '/firmware/bhi260ap_swim']
+
+group = DefineGroup('BHI260AP', src, depend = ['PKG_USING_BHI260AP'], CPPPATH = inc)
+
+Return('group')

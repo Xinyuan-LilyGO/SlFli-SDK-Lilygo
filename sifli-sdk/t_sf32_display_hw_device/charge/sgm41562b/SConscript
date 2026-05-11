@@ -1,0 +1,8 @@
+from building import *
+
+cwd = GetCurrentDir()
+src = Glob('*.c')
+CPPPATH = [cwd]
+group = DefineGroup('Drivers', src, depend = ['PKG_USING_SGM41562B'], CPPPATH = CPPPATH)
+
+Return('group')

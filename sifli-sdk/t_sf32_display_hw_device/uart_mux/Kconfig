@@ -1,0 +1,13 @@
+config PKG_USING_UART_MANGER
+    bool "Enable UART manager"
+    default n
+    select PKG_USING_UART
+    help
+        Enable PKG_USING_UART_MANGER library.
+
+    if  PKG_USING_UART_MANGER
+    
+        config UART_BUS_NAME
+            string "UART bus name"
+            default "uart2"
+    endif

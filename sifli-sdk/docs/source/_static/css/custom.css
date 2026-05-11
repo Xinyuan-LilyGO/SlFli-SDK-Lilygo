@@ -1,0 +1,179 @@
+.wy-side-nav-search>a {
+    color: #000000; 
+}
+
+.wy-side-nav-search > div[role="search"] {
+color: black;
+}
+
+.version-selector {
+display: flex;
+flex-direction: column;
+align-items: center;
+margin-bottom: 10px;
+}
+
+.version-selector select {
+margin-bottom: 10px;
+border-radius: 5px;
+padding: 5px;
+width: 120px;
+}
+
+/* .rst-content ol.arabic > li > ol {
+    counter-reset: item;
+}
+
+.rst-content ol.arabic > li > ol > li {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0.3em;
+}
+
+.rst-content ol.arabic > li > ol > li:before {
+    content: counter(item) ")";
+    counter-increment: item;
+}
+ */
+
+ .rst-content ol.arabic ol {
+    counter-reset: subitem; /* 初始化子计数器 */
+    list-style: none; /* 移除默认列表样式 */
+    padding-left: 1em; /* 为嵌套列表增加左侧内边距 */
+}
+
+.rst-content ol.arabic ol > li {
+    display: block;
+    position: relative;
+    margin-bottom: 0.3em; /* 为嵌套列表项增加下间距 */
+}
+
+.rst-content ol.arabic ol > li:before {
+    content: counter(subitem) ") "; /* 使用带括号的数字编号，并在编号后加上括号和空格 */
+    counter-increment: subitem; /* 递增子计数器 */
+    position: absolute;
+    left: -1.5em; /* 调整子编号位置 */
+}
+
+
+.rst-content ol.arabic ol ol {
+    counter-reset: thirdlevel; /* 初始化子计数器 */
+    list-style: none; /* 移除默认列表样式 */
+    padding-left: 0.1em; /* 为嵌套列表增加左侧内边距 */
+}
+
+.rst-content ol.arabic ol ol > li {
+    display: block;
+    position: relative;
+    margin-bottom: 0.1em; /* 为嵌套列表项增加下间距 */
+}
+
+.rst-content ol.arabic ol ol > li:before {
+    content: counter(thirdlevel, lower-alpha) ") "; /* 使用带括号的数字编号，并在编号后加上括号和空格 */
+    counter-increment: thirdlevel; /* 递增子计数器 */
+    position: absolute;
+    left: -1.3em; /* 调整子编号位置 */
+}
+
+.nav-versions li:hover {
+    background-color: var(--sy-c-surface); /* 设置鼠标悬停时的背景颜色 */
+    color: var(--sy-c-link-hover); /* 设置鼠标悬停时的文本颜色 */
+    cursor: pointer; /* 设置鼠标悬停时的指针样式 */
+}
+
+
+.sy-foot-feedback {
+    font-size: 1.0rem;
+  }
+  
+.sy-foot-feedback a {
+  font-weight: 600;
+}
+
+.sy-foot-feedback a:hover {
+  text-decoration: underline;
+}
+  
+
+  #feedback-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #e24329;
+    color: white;
+    padding: 10px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    z-index: 9999;
+  }
+  
+#feedback-popup {
+  max-width: 420px;
+  width: 90vw;
+  min-width: 260px;
+  min-height: 430px;
+  box-sizing: border-box;
+  padding: 24px 18px 16px 18px;
+  background: #f6f8fa;
+  border-radius: 8px;
+  border: 2px solid #b3b3b3;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.18);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  display: none;
+  overflow: auto;
+}
+ 
+
+#feedback-popup input, #feedback-popup textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+#feedback-popup .feedback-actions {
+  margin-top: 18px;
+  text-align: right;
+}
+
+#feedback-popup .feedback-actions button {
+  min-width: 72px;
+  padding: 7px 18px;
+  margin-left: 10px;
+  border: none;
+  border-radius: 5px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+#feedback-popup #feedback-cancel {
+  background: #e0e3e8;
+  color: #333;
+}
+#feedback-popup #feedback-cancel:hover {
+  background: #d0d3d8;
+}
+#feedback-popup #feedback-submit {
+  background: #3477f5;
+  color: #fff;
+}
+#feedback-popup #feedback-submit:hover {
+  background: #2457c5;
+}
+
+@media (max-width: 500px) {
+  #feedback-popup {
+    max-width: 98vw;
+    padding: 12px 4vw 12px 4vw;
+    min-height: 0;
+  }
+  #feedback-popup .flex-row {
+    flex-direction: column;
+    gap: 8px !important;
+  }
+}
+

@@ -1,0 +1,2 @@
+source "$SIFLI_SDK/customer/boards/t-display-sf32-base/Kconfig.board"
+

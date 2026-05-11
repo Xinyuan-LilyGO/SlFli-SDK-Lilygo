@@ -1,0 +1,20 @@
+menu "GPS module configuration"
+
+source "$SIFLI_SDK/t_sf32_display_hw_device/gps/lwgps2rtt/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/gps/TinyGPS/Kconfig"
+
+    config PKG_USING_L76K
+        bool "Enable GPS L76K"
+        default n
+
+        help
+            Enable support for GPS L76K
+
+        if  PKG_USING_L76K        
+
+            config GPS_UART_BUS_NAME
+                string "UART bus name"
+                default "uart2"
+        endif
+
+endmenu
