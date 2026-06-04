@@ -257,7 +257,7 @@ static bool lora_radio_tester_init(void)
                                                         lora_radio_test_thread_entry, 
                                                         RT_NULL,
                                                         8096, 
-                                                        2, 
+                                                        RT_THREAD_PRIORITY_HIGH, 
                                                         10);
             if (lora_radio_test_thread != RT_NULL)
             {

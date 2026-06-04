@@ -48,7 +48,7 @@ int lora_app_init(void)
     int ret;
     rt_event_init(&radio_event, "ev_lora_test", RT_IPC_FLAG_FIFO);
     lora_radio_thread = rt_thread_create(
-        "lora-radio-test", lora_radio_thread_entry, RT_NULL, 2048, 2, 10);
+        "lora-radio-test", lora_radio_thread_entry, RT_NULL, 2048, RT_THREAD_PRIORITY_HIGH, 10);
     if (lora_radio_thread != RT_NULL)
     {
         rt_thread_startup(lora_radio_thread);

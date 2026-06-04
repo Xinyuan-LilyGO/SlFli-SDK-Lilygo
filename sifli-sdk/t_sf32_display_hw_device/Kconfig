@@ -5,11 +5,13 @@ source "$SIFLI_SDK/t_sf32_display_hw_device/charge/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/input_keyboard/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/io_expand/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/gps/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/pa/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/sensor/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/esp_at/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/motor/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/infrared/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/audio_manager_lib/Kconfig"
 
 endmenu
 

@@ -591,7 +591,7 @@ rt_err_t rt_bhi260ap_init(void)
         return -RT_ERROR;
 
     /* 创建数据处理线程 */
-    bhi260ap_sensor_thread = rt_thread_create("bhi260ap", bhi260ap_thread_entry, RT_NULL, 2048, RT_THREAD_PRIORITY_MAX / 2, 20);
+    bhi260ap_sensor_thread = rt_thread_create("bhi260ap", bhi260ap_thread_entry, RT_NULL, 2048, RT_THREAD_PRIORITY_MIDDLE, 20);
     if (bhi260ap_sensor_thread != RT_NULL)
     {
         rt_thread_startup(bhi260ap_sensor_thread);

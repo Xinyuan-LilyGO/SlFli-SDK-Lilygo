@@ -13,6 +13,7 @@
 #define LOG_TAG "LoRa.SX126X.SPI"
 #define LOG_LEVEL LOG_LVL_DBG
 #include "lora-radio-debug.h"
+uint8_t _wr_buf[256]; /* max 255 byte payload + 2 byte header */
 
 void SX126xWakeup(void)
 {
@@ -146,17 +147,15 @@ void SX126xWriteBuffer(uint8_t offset, uint8_t *buffer, uint8_t size)
      * multi-message CS hold issue (HOLD_FRAME_LOW) that can cause SPI_EndRxTxTransaction
      * timeout with larger payloads.
      */
-    uint8_t combined[2 + 255]; /* max 255 byte payload + 2 byte header */
-
-    combined[0] = RADIO_WRITE_BUFFER;
-    combined[1] = offset;
-    rt_memcpy(combined + 2, buffer, size);
+    _wr_buf[0] = RADIO_WRITE_BUFFER;
+    _wr_buf[1] = offset;
+    rt_memcpy(_wr_buf + 2, buffer, size);
 
     SX126xCheckDeviceReady();
 
     rt_pin_mode(LORA_RADIO_NSS_PIN, PIN_MODE_OUTPUT);
     rt_pin_write(LORA_RADIO_NSS_PIN, PIN_LOW);
-    rt_spi_send(SX126x.spi, combined, size + 2);
+    rt_spi_send(SX126x.spi, _wr_buf, size + 2);
     rt_pin_write(LORA_RADIO_NSS_PIN, PIN_HIGH);
 
     SX126xWaitOnBusy();

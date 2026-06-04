@@ -158,11 +158,6 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
     };
     rt_i2c_configure(_handle->i2c_bus, &configuration);
 
-    _handle->monitor_thread = rt_thread_create(
-        "sgm_mon", charger_monitor_thread_entry, _handle, 1024, 10, 10);
-    if (_handle->monitor_thread)
-        rt_thread_startup(_handle->monitor_thread);
-
     /* Verify device ID */
     if (sgm41562b_get_device_id(_handle, &device_id) != RT_EOK)
     {
@@ -191,6 +186,12 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
         rt_pin_irq_enable(irq_pin, PIN_IRQ_ENABLE);
         _handle->irq_enabled = RT_TRUE;
     }
+    
+    _handle->monitor_thread = rt_thread_create(
+        "sgm_mon", charger_monitor_thread_entry, _handle, 1024, RT_THREAD_PRIORITY_MIDDLE, 10);
+
+    if (_handle->monitor_thread)
+        rt_thread_startup(_handle->monitor_thread);
 
     return _handle;
 }
@@ -831,7 +832,7 @@ static void default_config(sgm41562b_handle_t handle)
     sgm41562b_set_charge_current(handle, 200);        /* 200mA */
     sgm41562b_set_precharge_term_current(handle, 31); /* 31mA */
     sgm41562b_set_system_voltage(handle, 4550);       /* 4.55V */
-    sgm41562b_set_battery_uvlo(handle, 2760);
+    sgm41562b_set_battery_uvlo(handle, 3000);
     sgm41562b_set_thermal_regulation_threshold(handle, THERMAL_REG_120C);
     sgm41562b_set_watchdog_timer(
         handle, WATCHDOG_DISABLE); /* Disable watchdog by default */

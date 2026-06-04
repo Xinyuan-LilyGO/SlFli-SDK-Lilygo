@@ -314,7 +314,7 @@ static void aw21009_test(int argc, char **argv)
         rt_thread_t thread;
         thread =
             rt_thread_create("breath", (void (*)(void *))aw21009_breath_test,
-                             RT_NULL, 1024, 20, 20);
+                             RT_NULL, 1024, RT_THREAD_PRIORITY_HIGH, 20);
         if (thread != RT_NULL)
         {
             rt_thread_startup(thread);

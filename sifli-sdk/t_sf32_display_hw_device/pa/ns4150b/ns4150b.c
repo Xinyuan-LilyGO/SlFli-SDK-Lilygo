@@ -73,12 +73,8 @@ void sifli_ns4150b_start()
 {
     int i = ns4150b_mode;
     GPIO_InitTypeDef GPIO_InitStruct;
-#if defined(PMIC_CTRL_ENABLE)
-    pmic_device_control(PMIC_OUT_VBAT_HVSW150_1, 1, 1);//wait ???
-#else
     /* @todo power handle */
     rt_kprintf("sifli_ns4150b to do power handle \n");
-#endif
     // set sensor pin to output mode
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT;
     GPIO_InitStruct.Pin  = gpio_pin;
@@ -106,11 +102,6 @@ void sifli_ns4150b_stop()
 {
     ns4150b_gpio_write(0);
     HAL_Delay_us(550);
-#if defined(PMIC_CTRL_ENABLE)
-    pmic_device_control(PMIC_OUT_VBAT_HVSW150_1, 0, 1);
-#else
-    /* @todo power handle */
-#endif
     rt_kprintf("sifli_ns4150b_stop \n");
 }
 

@@ -264,6 +264,14 @@ rt_err_t key_board_tca8418_init(void)
         log_e("TCA8418_EnableInterrupt failed");
         return -RT_ERROR;
     }
+    
+    uint8_t dummy, count;
+    TCA8418_ReadRegister(KEY_LCK_EC, &count, 1);
+    for (uint8_t i = 0; i < count && i < 10; i++)
+        TCA8418_ReadRegister(KEY_EVENT_A, &dummy, 1);
+    // 清除中断状态位
+    uint8_t clr = 0x01;
+    TCA8418_WriteRegister(INT_STAT, &clr, 1);
 
     rt_pin_mode(KEY_BOARD_IRQ_PIN, PIN_MODE_INPUT_PULLUP);
     rt_pin_attach_irq(KEY_BOARD_IRQ_PIN, PIN_IRQ_MODE_FALLING, tca8418_int_isr,
@@ -271,7 +279,7 @@ rt_err_t key_board_tca8418_init(void)
     rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
 
     rt_thread_t tid =
-        rt_thread_create("key", key_thread_entry, RT_NULL, 1024, 12, 10);
+        rt_thread_create("key", key_thread_entry, RT_NULL, 1024, RT_THREAD_PRIORITY_HIGH, 10);
     rt_thread_startup(tid);
 
     return RT_EOK;

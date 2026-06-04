@@ -45,36 +45,15 @@
  *
  */
 
-#ifndef __SILFI_NS4150B_H
-#define __SILFI_NS4150B_H
+#ifndef __NS4150B_H__
+#define __NS4150B_H__
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
-
 void sifli_ns4150b_start();
 void sifli_ns4150b_stop();
-
-
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
 
 #ifdef __cplusplus
 }

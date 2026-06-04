@@ -21,7 +21,7 @@ static uart_mux_device_t current_device = UART_MUX_DEVICE_NONE;
 /* 接收线程 */
 static rt_thread_t rx_thread = RT_NULL;
 #define RX_THREAD_STACK_SIZE 1024
-#define RX_THREAD_PRIORITY 12
+#define RX_THREAD_PRIORITY RT_THREAD_PRIORITY_MIDDLE
 
 /* 接收回调表 */
 static uart_mux_rx_callback rx_callbacks[3] = {RT_NULL}; /* 索引对应 enum */
@@ -209,7 +209,7 @@ int uart_mux_switch_to(uart_mux_device_t dev, uint32_t baudrate)
 int uart_mux_register_rx_callback(uart_mux_device_t dev,
                                   uart_mux_rx_callback callback)
 {
-    if (dev == UART_MUX_DEVICE_NONE || callback == RT_NULL)
+    if (dev == UART_MUX_DEVICE_NONE)
         return -RT_EINVAL;
 
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
@@ -226,7 +226,7 @@ int uart_mux_send(const uint8_t *data, size_t len)
     rt_size_t sent;
 
     if (data == RT_NULL || len == 0)
-        return 0;
+        return -RT_ERROR;
 
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
     ser = mux_serial;

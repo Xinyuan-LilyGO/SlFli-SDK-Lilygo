@@ -32,7 +32,7 @@
 #define AUDCODEC_DEVICE_NAME "audcodec"
 #define AUDPRC_DEVICE_NAME   "audprc"
 
-#define AUDIO_BUF_SIZE  (1024)
+#define AUDIO_BUF_SIZE  (640)
 #define AUDRX_BUF_MAX (1024*1024)
 
 static uint8_t g_pipe_data[AUDIO_BUF_SIZE];

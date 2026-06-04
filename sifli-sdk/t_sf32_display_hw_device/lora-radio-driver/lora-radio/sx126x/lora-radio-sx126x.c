@@ -607,7 +607,7 @@ bool RadioInit(RadioEvents_t *events)
         rt_thread_init(&lora_radio_thread, "lora-phy", lora_radio_thread_entry,
                        RT_NULL, &rt_lora_radio_thread_stack[0],
                        sizeof(rt_lora_radio_thread_stack),
-                       1, // highest priority
+                       RT_THREAD_PRIORITY_HIGH, // highest priority
                        20);
 
         rt_thread_startup(&lora_radio_thread);

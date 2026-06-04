@@ -124,9 +124,6 @@ void SX126xReset(void)
     // internal pull-up
     rt_pin_mode(LORA_RADIO_RESET_PIN, PIN_MODE_INPUT);
     SX126X_DELAY_MS(10);
-
-    rt_pin_mode(LORA_RADIO_NSS_PIN, PIN_MODE_OUTPUT);
-    rt_pin_write(LORA_RADIO_NSS_PIN, PIN_HIGH);
 }
 
 void SX126xWaitOnBusy(void)

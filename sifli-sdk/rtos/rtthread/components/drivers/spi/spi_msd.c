@@ -534,7 +534,8 @@ static rt_err_t rt_msd_init(rt_device_t dev)
     {
         struct rt_spi_configuration cfg;
         cfg.data_width = 8;
-        cfg.mode = RT_SPI_MASTER | RT_SPI_MODE_3 | RT_SPI_MSB;   /* SPI Compatible Modes 0 */
+        cfg.mode = RT_SPI_MASTER | RT_SPI_MODE_3 |
+                   RT_SPI_MSB;    /* SPI Compatible Modes 0 */
         cfg.max_hz = 8 * 1000000; /* 24MHzbit/s */
         cfg.frameMode = RT_SPI_MOTO;
         rt_spi_configure(msd->spi_device, &cfg);
@@ -552,10 +553,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
             goto _exit;
         }
 
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
         /* The host shall supply power to the card so that the voltage is
            reached to Vdd_min within 250ms and start to supply at least 74 SD
@@ -581,17 +582,19 @@ static rt_err_t rt_msd_init(rt_device_t dev)
             tick_start = rt_tick_get();
             while (1)
             {
-                rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                rt_spi_take(msd->spi_device);
 #endif
 
                 result = _send_cmd(msd->spi_device, GO_IDLE_STATE, 0x00, 0x95,
                                    response_r1, response);
-                rt_spi_release(msd->spi_device);
 
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
 
                 if ((result == RT_EOK) && (response[0] == MSD_IN_IDLE_STATE))
@@ -617,15 +620,17 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
             do
             {
-                rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                rt_spi_take(msd->spi_device);
 #endif
                 result = _send_cmd(msd->spi_device, SEND_IF_COND, 0x01AA, 0x87,
                                    response_r7, response);
-                rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
 
                 if (result == RT_EOK)
@@ -684,17 +689,19 @@ static rt_err_t rt_msd_init(rt_device_t dev)
             while (1)
             {
                 MSD_DEBUG("SD_V1: READ_OCR\n");
-                rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                rt_spi_take(msd->spi_device);
 #endif
                 result = _send_cmd(msd->spi_device, READ_OCR, 0x00, 0x00,
                                    response_r3, response);
                 if (result != RT_EOK)
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     MSD_DEBUG("[info] It maybe SD1.x or MMC But it is Not "
@@ -704,18 +711,20 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
                 if (0 != (response[0] & 0xFE))
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     MSD_DEBUG("[info] It look CMD58 as illegal command so it "
                               "is not SD card!\r\n");
                     break;
                 }
-                rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
 
                 OCR = response[1];
@@ -741,9 +750,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                     if (rt_tick_timeout(tick_start, rt_tick_from_millisecond(
                                                         CARD_TRY_TIMES_ACMD41)))
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         MSD_DEBUG("[info] try CMD55 + ACMD41 timeout! mabey "
@@ -751,9 +761,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                         break;
                     }
 
-                    rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                    rt_spi_take(msd->spi_device);
 #endif
 
                     /* CMD55 APP_CMD */
@@ -761,9 +772,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                                        response_r1, response);
                     if (result != RT_EOK)
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         continue;
@@ -771,9 +783,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
                     if (0 != (response[0] & 0xFE))
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         MSD_DEBUG("[info] Not SD card2 , may be MMC\r\n");
@@ -785,9 +798,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                                        0x00, response_r1, response);
                     if (result != RT_EOK)
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         continue;
@@ -795,9 +809,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
                     if (0 != (response[0] & 0xFE))
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         MSD_DEBUG("[info] Not SD card4 , may be MMC\r\n");
@@ -806,9 +821,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
                     if (0 == (response[0] & 0xFF))
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         is_sd_v1_x = RT_TRUE;
@@ -826,9 +842,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                 uint32_t i;
 
                 MSD_DEBUG("[info] try MMC card!\r\n");
-                rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
                 /* send dummy clock */
                 {
@@ -853,15 +870,17 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                 tick_start = rt_tick_get();
                 while (1)
                 {
-                    rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                    rt_spi_take(msd->spi_device);
 #endif
                     result = _send_cmd(msd->spi_device, GO_IDLE_STATE, 0x00,
                                        0x95, response_r1, response);
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     if ((result == RT_EOK) &&
@@ -883,16 +902,18 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                 tick_start = rt_tick_get();
                 while (1)
                 {
-                    rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                    rt_spi_take(msd->spi_device);
 #endif
 
                     result = _send_cmd(msd->spi_device, SEND_OP_COND, 0x00,
                                        0x00, response_r1, response);
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     if ((result == RT_EOK) &&
@@ -915,9 +936,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
         }
         else if (msd->card_type == MSD_CARD_TYPE_SD_V2_X)
         {
-            rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+            rt_spi_take(msd->spi_device);
 #endif
 
             uint8_t ocr_timeout = 5;
@@ -928,9 +950,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                                    response_r3, response);
                 if (result != RT_EOK)
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
                     MSD_DEBUG("[err] It maybe SD2.0 But it is Not response to "
                               "CMD58!\r\n");
@@ -944,9 +967,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                 }
                 rt_thread_mdelay(10);
             }
-            rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             OCR = response[1];
@@ -969,17 +993,19 @@ static rt_err_t rt_msd_init(rt_device_t dev)
             /* try CMD55 + ACMD41 */
             do
             {
-                rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+                rt_spi_take(msd->spi_device);
 #endif
 
                 if (rt_tick_timeout(tick_start, rt_tick_from_millisecond(
                                                     CARD_TRY_TIMES_ACMD41)))
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
                     MSD_DEBUG("[err] SD Ver2.x or later try CMD55 + ACMD41 "
                               "timeout!\r\n");
@@ -996,9 +1022,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                     //                0x01))
                     if (result != RT_EOK)
                     {
-                        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                        rt_spi_release(msd->spi_device);
 #endif
 
                         continue;
@@ -1017,9 +1044,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                                    0x77, response_r1, response);
                 if (result != RT_EOK)
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     MSD_DEBUG("[err] ACMD41 fail!\r\n");
@@ -1029,9 +1057,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
                 if ((response[0] & 0xFE) != 0)
                 {
-                    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                    rt_spi_release(msd->spi_device);
 #endif
 
                     MSD_DEBUG("[info] Not SD card4 , response : 0x%02X\r\n",
@@ -1039,27 +1068,30 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                     //                    break;
                 }
             } while (response[0] != MSD_RESPONSE_NO_ERROR);
-            rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             /* try CMD55 + ACMD41 */
 
             /* --Read OCR again */
             MSD_DEBUG("SD_V2 again: READ_OCR\n");
-            rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+            rt_spi_take(msd->spi_device);
 #endif
 
             result = _send_cmd(msd->spi_device, READ_OCR, 0x00, 0x00,
                                response_r3, response);
             if (result != RT_EOK)
             {
-                rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
 
                 MSD_DEBUG("[err] It maybe SD2.0 But it is Not response to 2nd "
@@ -1069,9 +1101,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
             if ((response[0] & 0xFE) != 0)
             {
-                rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
                 rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+                rt_spi_release(msd->spi_device);
 #endif
 
                 MSD_DEBUG("[err] It look 2nd CMD58 as illegal command so it is "
@@ -1079,9 +1112,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
                 result = RT_ERROR;
                 goto _exit;
             }
-            rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             OCR = response[1];
@@ -1129,14 +1163,16 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
     /* set CRC */
     {
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
 
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
 #ifdef MSD_USE_CRC
@@ -1146,9 +1182,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
         result = _send_cmd(msd->spi_device, CRC_ON_OFF, 0x00, 0x91, response_r1,
                            response);
 #endif
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
 
         if ((result != RT_EOK) || (response[0] != MSD_RESPONSE_NO_ERROR))
@@ -1162,21 +1199,24 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
     /* CMD16 SET_BLOCKLEN */
     {
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
 
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         result = _send_cmd(msd->spi_device, SET_BLOCKLEN, SECTOR_SIZE, 0x00,
                            response_r1, response);
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
 
         if ((result != RT_EOK) || (response[0] != MSD_RESPONSE_NO_ERROR))
@@ -1194,9 +1234,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
     {
         uint8_t CSD_buffer[MSD_CSD_LEN];
 
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         //        result = _send_cmd(msd->spi_device, SEND_CSD, 0x00, 0xAF,
@@ -1206,9 +1247,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
         if (result != RT_EOK)
         {
-            rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             MSD_DEBUG("[err] CMD9 SEND_CSD timeout!\r\n");
@@ -1217,9 +1259,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
         if ((result != RT_EOK) || (response[0] != MSD_RESPONSE_NO_ERROR))
         {
-            rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             MSD_DEBUG("[err] CMD9 SEND_CSD fail! response : 0x%02X\r\n",
@@ -1229,9 +1272,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
         }
 
         result = _read_block(msd->spi_device, CSD_buffer, MSD_CSD_LEN);
-        rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
         rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+        rt_spi_release(msd->spi_device);
 #endif
 
         if (result != RT_EOK)
@@ -1481,9 +1525,10 @@ static rt_err_t rt_msd_init(rt_device_t dev)
 
 #endif
 _exit:
-    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
 
     rt_mutex_release(&(msd->spi_device->bus->lock));
@@ -1519,10 +1564,10 @@ static rt_size_t rt_msd_read(rt_device_t dev, rt_off_t pos, void *buffer,
     /* SINGLE_BLOCK? */
     if (size == 1)
     {
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         result = _send_cmd(msd->spi_device, READ_SINGLE_BLOCK,
@@ -1547,11 +1592,10 @@ static rt_size_t rt_msd_read(rt_device_t dev, rt_off_t pos, void *buffer,
     {
         uint32_t i;
 
-        rt_spi_take(msd->spi_device);
-
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         result = _send_cmd(msd->spi_device, READ_MULTIPLE_BLOCK,
@@ -1589,10 +1633,11 @@ static rt_size_t rt_msd_read(rt_device_t dev, rt_off_t pos, void *buffer,
     } /* READ_MULTIPLE_BLOCK */
 
 _exit:
-    /* release and exit */
-    rt_spi_release(msd->spi_device);
+/* release and exit */
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
 
     rt_mutex_release(&(msd->spi_device->bus->lock));
@@ -1651,10 +1696,10 @@ static rt_size_t rt_msd_sdhc_read(rt_device_t dev, rt_off_t pos, void *buffer,
     /* SINGLE_BLOCK? */
     if (size == 1)
     {
-        rt_spi_take(msd->spi_device);
     #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+    #else
+        rt_spi_take(msd->spi_device);
     #endif
 
         result = _send_cmd(msd->spi_device, READ_SINGLE_BLOCK, pos, 0x00,
@@ -1678,10 +1723,10 @@ static rt_size_t rt_msd_sdhc_read(rt_device_t dev, rt_off_t pos, void *buffer,
     {
         uint32_t i;
 
-        rt_spi_take(msd->spi_device);
     #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+    #else
+        rt_spi_take(msd->spi_device);
     #endif
 
         result = _send_cmd(msd->spi_device, READ_MULTIPLE_BLOCK, pos, 0x00,
@@ -1718,10 +1763,11 @@ static rt_size_t rt_msd_sdhc_read(rt_device_t dev, rt_off_t pos, void *buffer,
     } /* READ_MULTIPLE_BLOCK */
 #endif
 _exit:
-    /* release and exit */
-    rt_spi_release(msd->spi_device);
+/* release and exit */
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
     rt_mutex_release(&(msd->spi_device->bus->lock));
     return size; // blk_offset;//size;
@@ -1746,10 +1792,10 @@ static rt_size_t rt_msd_write(rt_device_t dev, rt_off_t pos, const void *buffer,
     /* SINGLE_BLOCK? */
     if (size == 1)
     {
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         result = _send_cmd(msd->spi_device, WRITE_BLOCK,
@@ -1776,11 +1822,10 @@ static rt_size_t rt_msd_write(rt_device_t dev, rt_off_t pos, const void *buffer,
         struct rt_spi_message message;
         uint32_t i;
 
-        rt_spi_take(msd->spi_device);
-
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
 #ifdef MSD_USE_PRE_ERASED
@@ -1861,10 +1906,11 @@ static rt_size_t rt_msd_write(rt_device_t dev, rt_off_t pos, const void *buffer,
     } /* size > 1 */
 
 _exit:
-    /* release and exit */
-    rt_spi_release(msd->spi_device);
+/* release and exit */
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
 
     rt_mutex_release(&(msd->spi_device->bus->lock));
@@ -1889,10 +1935,10 @@ static rt_size_t rt_msd_sdhc_write(rt_device_t dev, rt_off_t pos,
     /* SINGLE_BLOCK? */
     if (size == 1)
     {
-        rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
         result = _send_cmd(msd->spi_device, WRITE_BLOCK, pos, 0x00, response_r1,
@@ -1919,8 +1965,9 @@ static rt_size_t rt_msd_sdhc_write(rt_device_t dev, rt_off_t pos,
 
         rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-        rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
         rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+        rt_spi_take(msd->spi_device);
 #endif
 
 #ifdef MSD_USE_PRE_ERASED
@@ -1996,10 +2043,11 @@ static rt_size_t rt_msd_sdhc_write(rt_device_t dev, rt_off_t pos,
     } /* size > 1 */
 
 _exit:
-    /* release and exit */
-    rt_spi_release(msd->spi_device);
+/* release and exit */
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
     rt_mutex_release(&(msd->spi_device->bus->lock));
 
@@ -2026,16 +2074,17 @@ static rt_err_t rt_msd_detection(rt_device_t dev)
         {
             rt_spi_take(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
-            rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
             rt_pin_write(MSD_SPI_CS_PIN, PIN_LOW);
+#else
+            rt_spi_take(msd->spi_device);
 #endif
 
             result = _send_cmd(msd->spi_device, SEND_IF_COND, 0x01AA, 0x87,
                                response_r7, response);
-            rt_spi_release(msd->spi_device);
-
 #ifdef RT_USING_SPI_MSD_CS_PIN
             rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+            rt_spi_release(msd->spi_device);
 #endif
 
             if (result == RT_EOK)
@@ -2068,9 +2117,10 @@ static rt_err_t rt_msd_detection(rt_device_t dev)
     } /* CMD8 */
 _exit:
 
-    rt_spi_release(msd->spi_device);
 #ifdef RT_USING_SPI_MSD_CS_PIN
     rt_pin_write(MSD_SPI_CS_PIN, PIN_HIGH);
+#else
+    rt_spi_release(msd->spi_device);
 #endif
 
     rt_mutex_release(&(msd->spi_device->bus->lock));
@@ -2108,7 +2158,9 @@ rt_err_t msd_init(const char *sd_device_name, const char *spi_device_name)
 {
     rt_err_t result = RT_EOK;
     struct rt_spi_device *spi_device;
-
+#ifdef RT_USING_SPI_MSD_CS_PIN
+    rt_pin_mode(MSD_SPI_CS_PIN, PIN_MODE_OUTPUT);
+#endif
     spi_device = (struct rt_spi_device *)rt_device_find(spi_device_name);
     if (spi_device == RT_NULL)
     {
@@ -2173,8 +2225,7 @@ int rt_spi_msd_init(void)
         }
     }
     rt_device_t spi_dev = rt_device_find("sdcard");
-    if (rt_device_open(spi_dev, RT_DEVICE_FLAG_DMA_RX | RT_DEVICE_FLAG_DMA_TX |
-                                    RT_DEVICE_FLAG_RDWR) != RT_EOK)
+    if (rt_device_open(spi_dev, RT_DEVICE_FLAG_RDWR) != RT_EOK)
         rt_kprintf("[SD] OPEN SPI1 FAIL !\n");
 
     if (msd_init("sd0", "sdcard") != RT_EOK)

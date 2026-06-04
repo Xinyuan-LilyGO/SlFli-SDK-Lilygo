@@ -40,56 +40,73 @@ struct rt_spi_device *lora_radio_spi_init(const char *bus_name,
         res = rt_hw_spi_device_attach(bus_name, lora_device_name);
         if (res != RT_EOK)
         {
-            LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,"rt_spi_bus_attach_device failed!\r\n");
+            LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+                                 "rt_spi_bus_attach_device failed!\r\n");
             return RT_NULL;
         }
-        lora_radio_spi_device = (struct rt_spi_device *) rt_device_find(lora_device_name);
+        lora_radio_spi_device =
+            (struct rt_spi_device *)rt_device_find(lora_device_name);
     }
 
     if (lora_radio_spi_device == RT_NULL)
     {
-        LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,"spi sample run failed! cant't find %s device!\n", lora_device_name);
+        LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+                             "spi sample run failed! cant't find %s device!\n",
+                             lora_device_name);
         return RT_NULL;
     }
 
-    res = rt_device_open(&(lora_radio_spi_device->parent), RT_DEVICE_FLAG_RDWR);
+    res = rt_device_open(&lora_radio_spi_device->parent,
+                         RT_DEVICE_FLAG_RDWR | RT_DEVICE_FLAG_DMA_RX |
+                             RT_DEVICE_FLAG_DMA_TX);
     if (res != RT_EOK)
     {
-        LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,"rt_device_open failed!\r\n");
-        return RT_NULL;
+        /* Fallback to non-DMA */
+        LOG_W("SPI DMA open failed (%d), try non-DMA", res);
+        res =
+            rt_device_open(&lora_radio_spi_device->parent, RT_DEVICE_FLAG_RDWR);
+        if (res != RT_EOK)
+        {
+            LOG_W("SPI device open failed");
+        }
     }
-    LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL, "find %s device!\n", lora_device_name);
+    // res = rt_device_open(&(lora_radio_spi_device->parent),
+    // RT_DEVICE_FLAG_RDWR); if (res != RT_EOK)
+    // {
+    //     LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+    //                          "rt_device_open failed!\r\n");
+    //     return RT_NULL;
+    // }
+    LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL, "find %s device!\n",
+                         lora_device_name);
 
-    /* config spi */
+    struct rt_spi_configuration cfg;
+    cfg.data_width = 8;
+    cfg.mode = RT_SPI_MASTER | RT_SPI_MODE_0 | RT_SPI_MSB |
+               RT_SPI_NO_CS;  /* SPI Compatible: Mode 0. */
+    cfg.max_hz = 8 * 1000000; /* max 10M */
+
+    res = rt_spi_configure(lora_radio_spi_device, &cfg);
+
+    if (res != RT_EOK)
     {
-        struct rt_spi_configuration cfg;
-        cfg.data_width = 8;
-        cfg.mode = RT_SPI_MASTER | RT_SPI_MODE_0 |
-                   RT_SPI_MSB;    /* SPI Compatible: Mode 0. */
-        cfg.max_hz = 8 * 1000000; /* max 10M */
-
-        res = rt_spi_configure(lora_radio_spi_device, &cfg);
-
-        if (res != RT_EOK)
-        {
-            LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
-                                 "rt_spi_configure failed!\r\n");
-        }
-        res = rt_spi_take_bus(lora_radio_spi_device);
-        if (res != RT_EOK)
-        {
-            LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
-                                 "rt_spi_take_bus failed!\r\n");
-        }
-
-        res = rt_spi_release_bus(lora_radio_spi_device);
-
-        if (res != RT_EOK)
-        {
-            LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
-                                 "rt_spi_release_bus failed!\r\n");
-        }
+        LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+                             "rt_spi_configure failed!\r\n");
     }
+    // res = rt_spi_take_bus(lora_radio_spi_device);
+    // if (res != RT_EOK)
+    // {
+    //     LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+    //                          "rt_spi_take_bus failed!\r\n");
+    // }
+
+    // res = rt_spi_release_bus(lora_radio_spi_device);
+
+    // if (res != RT_EOK)
+    // {
+    //     LORA_RADIO_DEBUG_LOG(LR_DBG_SPI, LOG_LEVEL,
+    //                          "rt_spi_release_bus failed!\r\n");
+    // }
 
     return lora_radio_spi_device;
 }

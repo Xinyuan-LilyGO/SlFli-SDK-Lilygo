@@ -679,7 +679,7 @@ int32_t button_init(button_cfg_t *cfg)
     button->debounce_cnt = 0;
     memcpy(&button->cfg, cfg, sizeof(button->cfg));
     /* TODO: use fixed value for now */
-    button->cfg.debounce_time = 20;
+    button->cfg.debounce_time = 20; //20
     rt_timer_init(&button->timer, "btn", detection_timeout_handler, (void *)button_id,
                   rt_tick_from_millisecond(BUTTON_DETECTION_DELAY), RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
     rt_timer_init(&button->timer2, "btn_tm2", timer2_timeout_handler, (void *)button_id,
