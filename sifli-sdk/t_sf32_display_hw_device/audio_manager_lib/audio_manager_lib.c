@@ -151,7 +151,8 @@ static void config_tx(void)
     //     out_sel = 0x5010; //mix left & right to speaker.  speaker pcm = left
     //     pcm + right pcm
     // }
-    // set dma buf size 蓝牙音乐dma和sd卡音乐共用一个dma buf,使用时根据实际情况调整dma buf大小
+    // set dma buf size 蓝牙音乐dma和sd卡音乐共用一个dma
+    // buf,使用时根据实际情况调整dma buf大小
     rt_device_control(audio.audprc_dev, AUDIO_CTL_SET_TX_DMA_SIZE,
                       (void *)(AUDIO_BUF_SIZE / 2));
 
@@ -208,10 +209,10 @@ static void config_tx(void)
     rt_device_control(audio.audprc_dev, AUDIO_CTL_CONFIGURE, &caps);
 
     // /* Set volume */
-    // AUDIO_LOG_DEBUG("init volume=%d\n", audio.volume);
-    // int volumex2 = eq_get_music_volumex2(audio.volume);
-    // rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME,
-    //                   (void *)volumex2);
+    AUDIO_LOG_DEBUG("init volume=%d\n", audio.volume);
+    int volumex2 = eq_get_music_volumex2(audio.volume);
+    rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME,
+                      (void *)volumex2);
 }
 
 static void start_rx(void)
@@ -336,15 +337,9 @@ void audio_set_volume(int vol)
     if (vol > VOLUME_MAX)
         vol = VOLUME_MAX;
     audio.volume = vol;
-    // int volumex2 = eq_get_music_volumex2(vol);
-    // rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME, (void
-    // *)volumex2); audio_server_set_private_volume(AUDIO_TYPE_BT_MUSIC,
-    // (uint8_t)audio.volume);
-    // audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC,
-    // (uint8_t)audio.volume);
-    // audio_server_set_private_volume(AUDIO_TYPE_LOCAL_RECORD,
-    // (uint8_t)audio.volume);
-    audio_server_set_public_volume((uint8_t)audio.volume);
+
+    audio_server_set_private_volume(AUDIO_TYPE_BT_MUSIC, (uint8_t)audio.volume);
+    audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC,(uint8_t)audio.volume);
     AUDIO_LOG_DEBUG("Volume set to %d\n", audio.volume);
 }
 
