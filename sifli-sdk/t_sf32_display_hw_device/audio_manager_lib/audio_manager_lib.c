@@ -1,12 +1,12 @@
 #include "audio_manager_lib.h"
 #include "bf0_hal.h"
 #include "drv_io.h"
+#include "math.h"
 #include "mem_section.h"
 #include "ns4150b.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
-#include "math.h"
 #if RT_USING_DFS
     #include "dfs_file.h"
     #include "dfs_posix.h"
@@ -31,7 +31,6 @@ audio_manager_t audio;
 
 /* Funtion */
 void mp3_proc_thread_entry(void *params);
-
 
 static bool has_wav_ext(const char *path)
 {
@@ -106,7 +105,7 @@ void audio_pa_close(void)
 static void config_rx(void)
 {
     struct rt_audio_caps caps;
-    int stream;
+    struct rt_audio_sr_convert cfg;
 
     /* AUDCODEC : set input as "AUDPRC_RX_FROM_CODEC" */
     rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETINPUT,
@@ -152,6 +151,9 @@ static void config_tx(void)
     //     out_sel = 0x5010; //mix left & right to speaker.  speaker pcm = left
     //     pcm + right pcm
     // }
+    // set dma buf size 蓝牙音乐dma和sd卡音乐共用一个dma buf,使用时根据实际情况调整dma buf大小
+    rt_device_control(audio.audprc_dev, AUDIO_CTL_SET_TX_DMA_SIZE,
+                      (void *)(AUDIO_BUF_SIZE / 2));
 
     /* AUCODEC : set output as "AUDPRC_TX_TO_CODEC" (codec/mem/i2s). */
     rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETOUTPUT,
@@ -205,10 +207,11 @@ static void config_tx(void)
 
     rt_device_control(audio.audprc_dev, AUDIO_CTL_CONFIGURE, &caps);
 
-    /* Set volume */
-    AUDIO_LOG_DEBUG("init volume=%d\n", audio.volume);
-    rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME,
-                      (void *)audio.volume);
+    // /* Set volume */
+    // AUDIO_LOG_DEBUG("init volume=%d\n", audio.volume);
+    // int volumex2 = eq_get_music_volumex2(audio.volume);
+    // rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME,
+    //                   (void *)volumex2);
 }
 
 static void start_rx(void)
@@ -333,10 +336,14 @@ void audio_set_volume(int vol)
     if (vol > VOLUME_MAX)
         vol = VOLUME_MAX;
     audio.volume = vol;
-    // rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME, (void *)audio.volume);
-    audio_server_set_private_volume(AUDIO_TYPE_BT_MUSIC, (uint8_t)audio.volume);
-    audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC, (uint8_t)audio.volume);
-    // audio_server_set_private_volume(AUDIO_TYPE_LOCAL_RECORD, (uint8_t)audio.volume);
+    // int volumex2 = eq_get_music_volumex2(vol);
+    // rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME, (void
+    // *)volumex2); audio_server_set_private_volume(AUDIO_TYPE_BT_MUSIC,
+    // (uint8_t)audio.volume);
+    // audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC,
+    // (uint8_t)audio.volume);
+    // audio_server_set_private_volume(AUDIO_TYPE_LOCAL_RECORD,
+    // (uint8_t)audio.volume);
     audio_server_set_public_volume((uint8_t)audio.volume);
     AUDIO_LOG_DEBUG("Volume set to %d\n", audio.volume);
 }
@@ -400,8 +407,7 @@ int audio_get_decibel(void)
     }
 
     /* 等待新数据就绪 */
-    rt_event_recv(audio.rx_ind_event, 1,
-                  RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
+    rt_event_recv(audio.rx_ind_event, 1, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
                   RT_WAITING_FOREVER, &evt);
 
     /* 读取一帧数据 */
@@ -467,7 +473,8 @@ static void audprc_rx_entry(void *parameter)
                 int db_samples = get_mic_data_len / sizeof(int16_t);
                 int64_t sum_sq = 0;
                 for (int i = 0; i < db_samples; i++)
-                    sum_sq += (int64_t)((int16_t *)mic_data)[i] * ((int16_t *)mic_data)[i];
+                    sum_sq += (int64_t)((int16_t *)mic_data)[i] *
+                              ((int16_t *)mic_data)[i];
                 if (sum_sq > 0 && db_samples > 0)
                 {
                     double rms = sqrt((double)sum_sq / db_samples);
@@ -479,7 +486,8 @@ static void audprc_rx_entry(void *parameter)
                 {
                     audio.current_db = -100;
                 }
-                AUDIO_LOG_DEBUG("Mic dBFS=%d (samples=%d)\n", audio.current_db, db_samples);
+                // AUDIO_LOG_DEBUG("Mic dBFS=%d (samples=%d)\n",
+                // audio.current_db, db_samples);
             }
 
             /* 暂停时丢弃数据（但必须继续读取，防止 DMA FIFO 溢出） */
@@ -795,8 +803,8 @@ void mp3_playlist_scan(const char *dir)
         const char *ext = strrchr(ent->d_name, '.');
         if (ext && (strcmp(ext, ".mp3") == 0 || strcmp(ext, ".MP3") == 0))
         {
-            rt_snprintf(audio.mp3_playlist[count], MP3_FILENAME_MAX,
-                        "%s/%s", dir, ent->d_name);
+            rt_snprintf(audio.mp3_playlist[count], MP3_FILENAME_MAX, "%s/%s",
+                        dir, ent->d_name);
             count++;
         }
     }
@@ -811,7 +819,8 @@ void mp3_playlist_scan(const char *dir)
             {
                 char tmp[MP3_FILENAME_MAX];
                 strncpy(tmp, audio.mp3_playlist[j], MP3_FILENAME_MAX);
-                strncpy(audio.mp3_playlist[j], audio.mp3_playlist[j + 1], MP3_FILENAME_MAX);
+                strncpy(audio.mp3_playlist[j], audio.mp3_playlist[j + 1],
+                        MP3_FILENAME_MAX);
                 strncpy(audio.mp3_playlist[j + 1], tmp, MP3_FILENAME_MAX);
             }
         }
@@ -976,7 +985,7 @@ void mp3_proc_thread_entry(void *params)
                 0,                /* cmd = 0, set loop times. */
                 msg.loop);        /* loop times. */
             /* To play. */
-            if(mp3ctrl_play(audio.mp3_handle) != RT_EOK)
+            if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
             {
                 AUDIO_LOG_DEBUG("mp3ctrl_play failed:%s\n", msg.param.filename);
             }
@@ -1027,7 +1036,8 @@ void mp3_proc_thread_entry(void *params)
                 if (audio.mp3_playlist_count == 1)
                     next_idx = 0;
                 else
-                    do {
+                    do
+                    {
                         next_idx = rand() % audio.mp3_playlist_count;
                     } while (next_idx == audio.mp3_current_index);
             }
@@ -1036,24 +1046,23 @@ void mp3_proc_thread_entry(void *params)
                 if (audio.mp3_current_index < 0)
                     next_idx = 0;
                 else
-                    next_idx = (audio.mp3_current_index + 1) % audio.mp3_playlist_count;
+                    next_idx = (audio.mp3_current_index + 1) %
+                               audio.mp3_playlist_count;
             }
             audio.mp3_current_index = next_idx;
             audio.mp3_paused = false;
             AUDIO_LOG_DEBUG("Playing %s [%d/%d]: %s\n",
-                            audio.mp3_shuffle ? "random" : "next",
-                            next_idx + 1, audio.mp3_playlist_count,
+                            audio.mp3_shuffle ? "random" : "next", next_idx + 1,
+                            audio.mp3_playlist_count,
                             audio.mp3_playlist[next_idx]);
             if (audio.mp3_handle)
             {
                 mp3ctrl_close(audio.mp3_handle);
                 audio_pa_close();
             }
-            audio.mp3_handle = mp3ctrl_open(
-                AUDIO_TYPE_LOCAL_MUSIC,
-                audio.mp3_playlist[next_idx],
-                mp3_play_callback_func,
-                NULL);
+            audio.mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC,
+                                            audio.mp3_playlist[next_idx],
+                                            mp3_play_callback_func, NULL);
             if (audio.mp3_handle == NULL)
             {
                 AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n",
@@ -1081,23 +1090,22 @@ void mp3_proc_thread_entry(void *params)
             if (audio.mp3_current_index < 0)
                 prev_idx = 0;
             else
-                prev_idx = (audio.mp3_current_index - 1 + audio.mp3_playlist_count)
-                           % audio.mp3_playlist_count;
+                prev_idx =
+                    (audio.mp3_current_index - 1 + audio.mp3_playlist_count) %
+                    audio.mp3_playlist_count;
             audio.mp3_current_index = prev_idx;
             audio.mp3_paused = false;
-            AUDIO_LOG_DEBUG("Playing prev [%d/%d]: %s\n",
-                            prev_idx + 1, audio.mp3_playlist_count,
+            AUDIO_LOG_DEBUG("Playing prev [%d/%d]: %s\n", prev_idx + 1,
+                            audio.mp3_playlist_count,
                             audio.mp3_playlist[prev_idx]);
             if (audio.mp3_handle)
             {
                 mp3ctrl_close(audio.mp3_handle);
                 audio_pa_close();
             }
-            audio.mp3_handle = mp3ctrl_open(
-                AUDIO_TYPE_LOCAL_MUSIC,
-                audio.mp3_playlist[prev_idx],
-                mp3_play_callback_func,
-                NULL);
+            audio.mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC,
+                                            audio.mp3_playlist[prev_idx],
+                                            mp3_play_callback_func, NULL);
             if (audio.mp3_handle == NULL)
             {
                 AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n",
