@@ -56,8 +56,8 @@ scons --board=t-display-sf32 --menuconfig
 scons --board=t-display-sf32_hcpu -j8  
 ```
 If the menuconfig interface appears and compilation passes, the porting is successful.
-![menuconfig](./res/image/menuconfig.png)
-![build](./res/image/build.png)
+![menuconfig](./image/menuconfig.png)
+![build](./image/build.png)
 
 ### b. Porting Touchscreen Driver Library
 Copy the touch driver `customer\peripherals\cst922` from the old SDK to the `customer\peripherals` directory of the new SDK. The display driver uses `LCD_USING_CO5300`.
@@ -79,8 +79,8 @@ Open `Windows Terminal` to enter the SDK terminal, navigate to the `T-Display-SF
 scons --board=t-display-sf32 --menuconfig 
 ```
 Enter the menuconfig interface, select `Config LCD on board -> Enable LCD on the board`, choose
-![lcd_chiose](./res/image/lcd_chiose.png)
-![lcd_meunconfig](./res/image/lcd_meunconfig.png)
+![lcd_chiose](./image/lcd_chiose.png)
+![lcd_meunconfig](./image/lcd_meunconfig.png)
 Press `D` to save and exit, then execute the following build and flash commands:
 ```
 scons --board=t-display-sf32_hcpu -j8  

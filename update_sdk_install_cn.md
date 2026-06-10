@@ -56,8 +56,8 @@ scons --board=t-display-sf32 --menuconfig
 scons --board=t-display-sf32_hcpu -j8  
 ```
 如果出现menuconfig界面和编译通过，则表示移植成功。
-![menuconfig](./res/image/menuconfig.png)
-![build](./res/image/build.png)
+![menuconfig](./image/menuconfig.png)
+![build](./image/build.png)
 
 ### b. 移植触摸屏驱动库
 将旧版本SDK文件的触摸驱动`customer\peripherals\cst922`复制到新SDK文件的`customer\peripherals`目录下。屏幕驱动使用`LCD_USING_CO5300`
@@ -79,8 +79,8 @@ config TSC_USING_CST922
 scons --board=t-display-sf32 --menuconfig 
 ```
 进入menuconfig界面，选择`Config LCD on board -> Enable LCD on the board`，选择
-![lcd_chiose](./res/image/lcd_chiose.png)
-![lcd_meunconfig](./res/image/lcd_meunconfig.png)
+![lcd_chiose](./image/lcd_chiose.png)
+![lcd_meunconfig](./image/lcd_meunconfig.png)
 按下`D`保存退出，执行以下编译命令和烧录命令：
 ```
 scons --board=t-display-sf32_hcpu -j8  
