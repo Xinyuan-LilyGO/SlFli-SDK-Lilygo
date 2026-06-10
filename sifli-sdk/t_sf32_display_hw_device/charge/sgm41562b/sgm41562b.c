@@ -830,19 +830,19 @@ static void default_config(sgm41562b_handle_t handle)
     sgm41562b_set_input_current_limit(handle, 500);   /* 500mA */
     sgm41562b_set_charge_voltage(handle, 4200);       /* 4.2V */
     sgm41562b_set_charge_current(handle, 200);        /* 200mA */
-    sgm41562b_set_precharge_term_current(handle, 31); /* 31mA */
-    sgm41562b_set_system_voltage(handle, 4550);       /* 4.55V */
+    sgm41562b_set_precharge_term_current(handle, 31);
+    sgm41562b_set_system_voltage(handle, 4200);     
     sgm41562b_set_battery_uvlo(handle, 3000);
     sgm41562b_set_thermal_regulation_threshold(handle, THERMAL_REG_120C);
     sgm41562b_set_watchdog_timer(
         handle, WATCHDOG_DISABLE); /* Disable watchdog by default */
-    sgm41562b_set_charge_safety_timer(handle, RT_TRUE, CHARGE_TIMER_5HRS);
-    sgm41562b_enable_ntc(handle, RT_TRUE); /* NTC disabled by default */
+    sgm41562b_set_charge_safety_timer(handle, RT_TRUE, CHARGE_TIMER_8HRS);
+    sgm41562b_enable_ntc(handle, RT_TRUE);
     sgm41562b_enable_pcb_otp(handle, RT_FALSE);
     sgm41562b_set_recharge_threshold(handle, RT_TRUE);  /* 200mV */
     sgm41562b_set_precharge_threshold(handle, RT_TRUE); /* 3.0V */
     sgm41562b_enable_charging(handle,
-                              RT_TRUE); /* Start with charging disabled */
+                              RT_TRUE);
 
     LOG_I("SGM41562B default configuration applied");
 }

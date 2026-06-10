@@ -39,7 +39,8 @@ Download this SDK and extract it to any directory, for example: `D:\T-Display-SF
      ```powershell
      %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoExit -File D:\T-Display-SF32\SDK\sifli-sdk\export.ps1
      ```
-
+![image](./image/set_powershell.png)
+![image](./image/set_powershell2.png)
 ---
 
 ## 🚀 Build and Flash
@@ -53,12 +54,23 @@ cd sifli-sdk\example\rt_driver\project
 
 ### 2. Build the Project
 Use the following command to build the project (-j16 indicates using 16 threads to accelerate the build, adjust based on your computer's configuration):
+```powershell
+scons --board=t-display-sf32_hcpu -j16
+```
+![image](./image/build1.png)
 
 ### 3. Flash the Firmware
 After the build is complete, execute the following batch file to enter flashing mode, then follow the prompts to input the device's port number to complete the flashing:
+```powershell
+build_t-display-sf32_hcpu\uart_download.bat
+```
+![image](./image/bulid.png)
 
 ### 4. Menu Configuration (Optional)
 If you need to modify the project configuration, you can run the following command to open the menuconfig interface:
+```powershell
+scons --board=t-display-sf32 --menuconfig
+```
 
 📜 License Information
 This project follows the corresponding open-source license. For specific information, please refer to the SDK source code and the LICENSE file in the sifli-sdk directory. Development using the SiFli SDK must comply with SiFli's official licensing agreements.

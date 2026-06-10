@@ -40,6 +40,8 @@
      %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoExit -File D:\T-Display-SF32\SDK\sifli-sdk\export.ps1
      ```
 
+![image](./image/set_powershell.png)
+![image](./image/set_powershell2.png)
 ---
 
 ## 🚀 构建与烧录
@@ -56,12 +58,14 @@ cd sifli-sdk\example\rt_driver\project
 ```powershell
 scons --board=t-display-sf32_hcpu -j16
 ```
+![image](./image/build1.png)
 
 ### 3. 烧录固件
 编译完成后，执行以下批处理文件进入烧录模式，然后根据提示输入设备的端口号即可完成烧录：
 ```powershell
 build_t-display-sf32_hcpu\uart_download.bat
 ```
+![image](./image/bulid.png)
 
 ### 4. 菜单配置（可选）
 如需修改工程配置，可运行以下命令打开 menuconfig 界面：
