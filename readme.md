@@ -76,5 +76,6 @@ scons --board=t-display-sf32 --menuconfig
 This project follows the corresponding open-source license. For specific information, please refer to the SDK source code and the LICENSE file in the sifli-sdk directory. Development using the SiFli SDK must comply with SiFli's official licensing agreements.
 
 💡 Additional Information
-Common Issues: If you encounter Python-related errors, first check whether the Python version and environment variables are configured correctly. If you encounter build errors, check whether the terminal is the dedicated PowerShell with export.ps1 loaded.
-Technical Support: For more information on low-level drivers and peripheral usage, refer to the official example code in the examples folder and the official documentation.
+- **Common Issues**: If you encounter Python-related errors, first check whether the Python version and environment variables are configured correctly. If you encounter build errors, check whether the terminal is the dedicated PowerShell with export.ps1 loaded.
+- **Technical Support**: For more information on low-level drivers and peripheral usage, refer to the official example code in the examples folder and the official documentation.
+- **Update to the latest SDK version**: See [update_sdk.md](./update_sdk_install.md).

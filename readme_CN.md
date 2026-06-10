@@ -83,3 +83,4 @@ scons --board=t-display-sf32 --menuconfig
 ## 💡 其他信息
 - **常见问题**：如遇 Python 相关报错，请优先检查 Python 版本及环境变量是否配置正确；如遇编译报错，请检查终端是否为已加载 `export.ps1` 的专用 PowerShell。
 - **技术支持**：更多底层驱动及外设使用方法，请参考 `examples` 文件夹内的官方示例代码及官方文档。
+- **更新SDK最新版本**：查看[update_sdk.md](./update_sdk_install_cn.md)。
