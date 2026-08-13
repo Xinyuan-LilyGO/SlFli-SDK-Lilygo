@@ -13,6 +13,7 @@
 
 #include <rtdevice.h>
 #include <rtthread.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -266,7 +267,8 @@ extern "C"
      */
     rt_err_t sgm41562b_watchdog_reset(sgm41562b_handle_t handle);
 
-    rt_err_t sgm41562b_set_nint_rst_time(sgm41562b_handle_t handle, rt_uint8_t value);
+    rt_err_t sgm41562b_set_nint_rst_time(sgm41562b_handle_t handle,
+                                         rt_uint8_t value);
 
     /**
      * @brief Enable or disable charging.
@@ -308,6 +310,17 @@ extern "C"
      * @return RT_EOK
      */
     rt_err_t sgm41562b_power_recycle(sgm41562b_handle_t handle);
+
+    /**
+     * @brief Set SWITCH_MODE (force Qswitch always on for ultra-low power)
+     * @param handle Device handle
+     * @param enable RT_TRUE = force Qswitch on (low power, no protection),
+     *               RT_FALSE = normal mode (Qswitch controlled by charger
+     * logic)
+     * @return RT_EOK on success
+     */
+    rt_err_t sgm41562b_set_switch_mode(sgm41562b_handle_t handle,
+                                       rt_bool_t enable);
 
     /* Configuration Setters */
 

@@ -4,6 +4,7 @@
 #include <string.h>
 
 static struct rt_i2c_bus_device *i2c_bus = RT_NULL;
+static rt_err_t aw21009_init(void);
 
 // I2C写寄存器函数
 static rt_err_t aw21009_write_reg(rt_uint8_t reg, rt_uint8_t value)
@@ -17,7 +18,13 @@ static rt_err_t aw21009_write_reg(rt_uint8_t reg, rt_uint8_t value)
     }
     // memcpy(&buf[0], value, length);
     buf[0] = value;
+#ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
     ret = rt_i2c_mem_write(i2c_bus, AW21009_I2C_ADDR, reg, 1, buf, length);
+#ifdef RT_USING_PM
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
     rt_free(buf);
     if (ret != length)
     {
@@ -39,6 +46,37 @@ static rt_err_t aw21009_read_reg(rt_uint8_t reg, rt_uint8_t *value)
     }
     return RT_EOK;
 }
+
+#ifdef RT_USING_PM
+
+static rt_err_t aw21009_deinit(void)
+{
+    if (i2c_bus != RT_NULL)
+    {
+        rt_device_close((rt_device_t)i2c_bus);
+        i2c_bus = RT_NULL;
+    }
+    return RT_EOK;
+}
+
+static int aw21009_pm_suspend(const struct rt_device *device, uint8_t mode)
+{
+    aw21009_set_all_brightness(LED_BRIGHT_0); // 先关灯
+    aw21009_deinit();                         // 关 I2C
+    return 0;
+}
+
+static void aw21009_pm_resume(const struct rt_device *device, uint8_t mode)
+{
+    aw21009_init(); // 完整重新初始化（开 I2C + 芯片配置 + 恢复亮度）
+}
+
+static const struct rt_device_pm_ops aw21009_pm_op = {
+    .suspend = aw21009_pm_suspend,
+    .resume = aw21009_pm_resume,
+};
+
+#endif
 
 rt_err_t aw21009_set_led_brightness(rt_uint8_t led, rt_uint16_t brightness)
 {
@@ -138,8 +176,7 @@ static rt_err_t aw21009_init(void)
         return -RT_ERROR;
     }
 
-    if (rt_device_open((rt_device_t)i2c_bus, RT_DEVICE_OFLAG_RDWR) !=
-        RT_EOK)
+    if (rt_device_open((rt_device_t)i2c_bus, RT_DEVICE_OFLAG_RDWR) != RT_EOK)
     {
         LOG_E("open %s device failed", KEY_BOARD_I2C_BUS_NAME);
         return -RT_ERROR;
@@ -218,6 +255,10 @@ static rt_err_t aw21009_init(void)
     {
         rt_kprintf("WARNING: CHIPEN=0! Chip not enabled!\n");
     }
+
+#ifdef RT_USING_PM
+    rt_pm_device_register(NULL, &aw21009_pm_op);
+#endif
 
     return RT_EOK;
 }

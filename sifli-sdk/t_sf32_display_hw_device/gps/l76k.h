@@ -50,7 +50,7 @@ extern "C"
      */
     int l76k_init(const char *uart_name, uint32_t baudrate);
     
-    void uatr_select_gps(void); // 已弃用，请使用 uart_mux_switch_to
+    uint32_t l76k_get_rx_bytes(void);
 
     /* 反初始化，释放资源 */
     void l76k_deinit(void);

@@ -54,7 +54,7 @@
 #ifdef RT_USING_DFS
     #include <dfs_posix.h>
 #endif
-
+#include "lv_draw_sw.h"
 #include "lvsf_perf.h"
 
 #include "cpu_usage_profiler.h"
@@ -136,8 +136,6 @@ FRAME_BUFFER_BSS_SECT(frambuf, ALIGN(FB_ALIGN_BYTE) static lv_fb_color_t  buf1_1
     FRAME_BUFFER_BSS_SECT(frambuf, ALIGN(FB_ALIGN_BYTE) static lv_fb_color_t  buf1_2[FB_ALIGNED_HOR_RES * LV_FB_LINE_NUM]);
 #endif /* LV_FB_TWO_NOT_SCREEN_SIZE || LV_FB_TWO_SCREEN_SIZE */
 FRAME_BUFFER_BSS_SECT_END
-
-
 
 /**************************************************
    2. Defination of LCD buffer(s) on PSRAM
@@ -555,7 +553,6 @@ static rt_err_t lcd_flush_done(rt_device_t dev, void *buffer)
 #endif /* BSP_USING_LCD_FRAMEBUFFER */
 
 extern uint32_t drv_epic_get_error(void);
-
 void lcd_flush(lv_disp_drv_t *disp_drv, const lv_area_t *buf_area, lv_color_t *color_p)
 {
     LCD_AreaDef clip_area =   //Buf clip area

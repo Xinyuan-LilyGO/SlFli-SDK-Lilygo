@@ -9,6 +9,7 @@
  */
 
 #include "sgm41562b.h"
+#include <drivers/pm.h>
 
 #define DBG_ENABLE
 #define DBG_SECTION_NAME "SGM41562B"
@@ -185,10 +186,11 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
                           (void (*)(void *))sgm41562b_isr_handler, _handle);
         rt_pin_irq_enable(irq_pin, PIN_IRQ_ENABLE);
         _handle->irq_enabled = RT_TRUE;
+
+        _handle->monitor_thread =
+            rt_thread_create("sgm_mon", charger_monitor_thread_entry, _handle,
+                             1024, RT_THREAD_PRIORITY_MIDDLE, 10);
     }
-    
-    _handle->monitor_thread = rt_thread_create(
-        "sgm_mon", charger_monitor_thread_entry, _handle, 1024, RT_THREAD_PRIORITY_MIDDLE, 10);
 
     if (_handle->monitor_thread)
         rt_thread_startup(_handle->monitor_thread);
@@ -199,7 +201,7 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
 rt_err_t sgm41562b_deinit(sgm41562b_handle_t handle)
 {
     RT_ASSERT(handle != RT_NULL);
-
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
     if (handle->irq_enabled)
     {
         rt_pin_irq_enable(handle->irq_pin, PIN_IRQ_DISABLE);
@@ -321,10 +323,12 @@ rt_err_t sgm41562b_watchdog_reset(sgm41562b_handle_t handle)
     return ret;
 }
 
-rt_err_t sgm41562b_set_nint_rst_time(sgm41562b_handle_t handle, rt_uint8_t value)
+rt_err_t sgm41562b_set_nint_rst_time(sgm41562b_handle_t handle,
+                                     rt_uint8_t value)
 {
     return sgm41562b_update_reg(handle, SGM41562B_REG_POWER_ON_CFG,
-                                SGM41562B_TRST_DGL_MASK, value << SGM41562B_TRST_DGL_SHIFT);
+                                SGM41562B_TRST_DGL_MASK,
+                                value << SGM41562B_TRST_DGL_SHIFT);
 }
 
 rt_err_t sgm41562b_enable_charging(sgm41562b_handle_t handle, rt_bool_t enable)
@@ -364,6 +368,13 @@ rt_err_t sgm41562b_power_recycle(sgm41562b_handle_t handle)
     /* Set COLD_RESET bit to 1 (self-clearing) */
     return sgm41562b_update_reg(handle, SGM41562B_REG_IIC_MISC_CFG,
                                 SGM41562B_COLD_RESET, SGM41562B_COLD_RESET);
+}
+
+rt_err_t sgm41562b_set_switch_mode(sgm41562b_handle_t handle, rt_bool_t enable)
+{
+    rt_uint8_t val = enable ? SGM41562B_SWITCH_MODE : 0;
+    return sgm41562b_update_reg(handle, SGM41562B_REG_IIC_MISC_CFG,
+                                SGM41562B_SWITCH_MODE, val);
 }
 
 /* --------------------------------------------------------------------------
@@ -761,7 +772,7 @@ const char *sgm41562b_get_ntc_fault_str(sgm41562b_handle_t handle)
 rt_err_t device_enter_shipping_mode(sgm41562b_handle_t handle)
 {
     RT_ASSERT(handle != RT_NULL);
-
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
     // 1. 暂停监控线程，避免它进行 I2C 操作
     if (handle->monitor_thread != RT_NULL)
     {
@@ -826,12 +837,13 @@ static void default_config(sgm41562b_handle_t handle)
 {
     sgm41562b_set_nint_rst_time(handle, 0); /* nINT reset time = 8s */
     /* Apply safe default settings */
-    sgm41562b_set_input_voltage_limit(handle, 4600);  /* 4.6V */
-    sgm41562b_set_input_current_limit(handle, 500);   /* 500mA */
-    sgm41562b_set_charge_voltage(handle, 4200);       /* 4.2V */
-    sgm41562b_set_charge_current(handle, 200);        /* 200mA */
+    sgm41562b_set_switch_mode(handle, false);
+    sgm41562b_set_input_voltage_limit(handle, 4600); /* 4.6V */
+    sgm41562b_set_input_current_limit(handle, 500);  /* 500mA */
+    sgm41562b_set_charge_voltage(handle, 4200);      /* 4.2V */
+    sgm41562b_set_charge_current(handle, 350);       /* 200mA */
     sgm41562b_set_precharge_term_current(handle, 31);
-    sgm41562b_set_system_voltage(handle, 4200);     
+    sgm41562b_set_system_voltage(handle, 4200);
     sgm41562b_set_battery_uvlo(handle, 3000);
     sgm41562b_set_thermal_regulation_threshold(handle, THERMAL_REG_120C);
     sgm41562b_set_watchdog_timer(
@@ -841,8 +853,7 @@ static void default_config(sgm41562b_handle_t handle)
     sgm41562b_enable_pcb_otp(handle, RT_FALSE);
     sgm41562b_set_recharge_threshold(handle, RT_TRUE);  /* 200mV */
     sgm41562b_set_precharge_threshold(handle, RT_TRUE); /* 3.0V */
-    sgm41562b_enable_charging(handle,
-                              RT_TRUE);
+    sgm41562b_enable_charging(handle, RT_TRUE);
 
     LOG_I("SGM41562B default configuration applied");
 }

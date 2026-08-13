@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <drivers/pm.h> 
 
 #define AT_ASYNC_DEBUG 1
 #if AT_ASYNC_DEBUG

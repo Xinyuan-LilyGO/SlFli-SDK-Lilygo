@@ -14,12 +14,12 @@
 #define AUDIO_BUF_SIZE  (640)
 #define AUDRX_BUF_MAX (1024*1024)
 
-#define SET_VOLUME_DEFAULT 8
+#define SET_VOLUME_DEFAULT 10
 #define VOLUME_MIN   0
 #define VOLUME_MAX   15
 #define VOLUME_STEP  1
 #define DEFAULT_CHANNELS 1
-#define DEFAULT_SAMPLERATE 44100
+#define DEFAULT_SAMPLERATE 16000
 #define DEFAULT_BIT_DEPTH 16
 #define MP3_PLAYLIST_MAX  64
 #define MP3_FILENAME_MAX  128
@@ -81,9 +81,11 @@ typedef struct audio_manager_t
     rt_uint32_t bit_depth;
     rt_uint32_t channels;    
     rt_bool_t is_recording;     /* 非 0 时录音 */
+    rt_bool_t record_full;      /* RAM record buffer is full */
     rt_bool_t is_playing;      /* 非 0 时播放 */
     rt_bool_t record_paused;  /* 非 0 时暂停录音 */
     rt_bool_t play_paused;  /* 非 0 时暂停录音 */
+    uint32_t ram_play_size;
     int volume;
     char *file_path;
     int file_fd;
@@ -105,12 +107,12 @@ void audio_pa_close(void);
 int audio_get_decibel(void);
 void audio_db_monitor_stop(void);
 
-void audio_record_start(const char *filepath);
+rt_err_t audio_record_start(const char *filepath);
 void audio_record_pause(void);
 void audio_record_resume(void);
 void audio_record_stop(void);
 
-void audio_play_start(const char *filepath);
+rt_err_t audio_play_start(const char *filepath);
 void audio_play_pause(void);
 void audio_play_resume(void);
 void audio_play_stop(void);

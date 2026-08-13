@@ -29,6 +29,7 @@ extern "C"
         AT_RESP_ID_CWDHCP,
         AT_RESP_ID_CIPAP,
         AT_RESP_ID_CIPSTA,
+        AT_RESP_ID_CWRECONNCFG,
 
         /* TCP/IP */
         AT_RESP_ID_CIPSTART,
@@ -93,7 +94,8 @@ extern "C"
                             const char *netmask);
     rt_err_t esp32_at_cipsta(int resp_id, const char *ip, const char *gateway,
                              const char *netmask);
-
+    rt_err_t esp32_at_cwreconncfg(int resp_id, int intreval_s,
+                                  uint32_t connect_count);
     /* ================================================================ */
     /*  TCP/IP                                                           */
     /* ================================================================ */

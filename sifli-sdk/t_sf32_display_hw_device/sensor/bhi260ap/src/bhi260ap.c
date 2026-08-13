@@ -38,8 +38,16 @@ static BHY2_INTF_RET_TYPE bhy2_i2c_read(uint8_t reg_addr, uint8_t *reg_data,
                                         uint32_t length, void *intf_ptr)
 {
     rt_size_t ret = 0;
+
+    #ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
     ret =
         rt_i2c_mem_read(i2c_bus, BHI260AP_ADDR, reg_addr, 1, reg_data, length);
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    #else
+    ret =
+        rt_i2c_mem_read(i2c_bus, BHI260AP_ADDR, reg_addr, 1, reg_data, length);
+    #endif
     if (ret != length)
     {
         LOG_E("read reg data failed");
@@ -59,7 +67,13 @@ static BHY2_INTF_RET_TYPE bhy2_i2c_write(uint8_t reg_addr,
         return BHY2_E_NULL_PTR;
     }
     memcpy(&buf[0], reg_data, length);
+    #ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
     ret = rt_i2c_mem_write(i2c_bus, BHI260AP_ADDR, reg_addr, 1, buf, length);
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    #else
+    ret = rt_i2c_mem_write(i2c_bus, BHI260AP_ADDR, reg_addr, 1, buf, length);
+    #endif
     rt_free(buf);
     if (ret != length)
     {
@@ -245,7 +259,8 @@ static void process_sensor_data(const struct bhy2_fifo_parse_data_info *data)
 }
 
 /* 传感器数据回调函数 */
-static void sensor_data_callback(const struct bhy2_fifo_parse_data_info *callback_info,
+static void
+sensor_data_callback(const struct bhy2_fifo_parse_data_info *callback_info,
                      void *private_data)
 {
     rt_uint16_t next_index = (data_write_index + 1) % SENSOR_DATA_BUFFER_SIZE;
@@ -538,9 +553,11 @@ static void bhi260ap_thread_entry(void *parameter)
         }
 
     #if defined(BHI260AP_IRQ_PIN)
-        if (rt_sem_take(bhi260ap_sem, RT_WAITING_FOREVER) == RT_EOK) // RT_TICK_PER_SECOND / 100
+        if (rt_sem_take(bhi260ap_sem, RT_WAITING_FOREVER) ==
+            RT_EOK) // RT_TICK_PER_SECOND / 100
         {
-            bhy2_get_and_process_fifo(work_buffer, work_buffer_size, &bhi260ap_dev);
+            bhy2_get_and_process_fifo(work_buffer, work_buffer_size,
+                                      &bhi260ap_dev);
         }
     #else
         bhy2_get_and_process_fifo(work_buffer, work_buffer_size, &bhi260ap_dev);
@@ -591,13 +608,14 @@ rt_err_t rt_bhi260ap_init(void)
         return -RT_ERROR;
 
     /* 创建数据处理线程 */
-    bhi260ap_sensor_thread = rt_thread_create("bhi260ap", bhi260ap_thread_entry, RT_NULL, 2048, RT_THREAD_PRIORITY_MIDDLE, 20);
+    bhi260ap_sensor_thread =
+        rt_thread_create("bhi260ap", bhi260ap_thread_entry, RT_NULL, 2048,
+                         RT_THREAD_PRIORITY_MIDDLE, 20);
     if (bhi260ap_sensor_thread != RT_NULL)
     {
         rt_thread_startup(bhi260ap_sensor_thread);
         rt_thread_suspend(bhi260ap_sensor_thread);
     }
- 
 
     return RT_EOK;
 }

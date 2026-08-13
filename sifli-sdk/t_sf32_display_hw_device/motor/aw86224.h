@@ -142,6 +142,12 @@ extern "C"
     rt_err_t aw86224_set_gain(rt_uint8_t gain);
 
     /**
+     * @brief Get current playback gain
+     * @return Current gain value (0-255, 128 = 100%)
+     */
+    uint8_t aw86224_get_gain(void);
+
+    /**
      * @brief Play waveform in RAM mode
      *
      * @param wave_id Waveform ID (1-127)

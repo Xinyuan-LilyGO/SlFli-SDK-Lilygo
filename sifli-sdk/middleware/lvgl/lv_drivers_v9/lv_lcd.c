@@ -190,6 +190,10 @@ FRAME_BUFFER_BSS_SECT_END
     L2_NON_RET_BSS_SECT(frambuf, ALIGN(64) static FB_TYPE buf2_1[FB_LINE_SIZE * LV_VER_RES_MAX]);
     L2_NON_RET_BSS_SECT_END
 
+    L2_NON_RET_BSS_SECT_BEGIN(rotbuf)
+    L2_NON_RET_BSS_SECT(rotbuf, ALIGN(64) static uint8_t rotate_buf[sizeof(buf1_1)]);
+    L2_NON_RET_BSS_SECT_END
+
     #if defined(LCD_FB_USING_TWO_UNCOMPRESSED)||defined(LCD_FB_USING_TWO_COMPRESSED)
         L2_NON_RET_BSS_SECT_BEGIN(frambuf)
         L2_NON_RET_BSS_SECT(frambuf, ALIGN(64) static FB_TYPE buf2_2[FB_LINE_SIZE * LV_VER_RES_MAX]);
@@ -204,6 +208,7 @@ FRAME_BUFFER_BSS_SECT_END
         #define get_draw_buf()  (&buf2_1[0])
     #endif
 #endif /* LCD_FB_USING_NONE */
+
 
 static void dummy_func2(void)
 {
@@ -372,7 +377,71 @@ uint8_t drv_gpu_is_cached_ram(uint32_t start, uint32_t len)
 static void lcd_flush(lv_display_t *disp_drv, const lv_area_t *refresh_area, uint8_t *color_p)
 {
     const lv_area_t *p_buf_area = &disp_drv->layer_head->buf_area;
+    lv_display_rotation_t rotation = lv_display_get_rotation(disp_drv);
 
+    if ((rotation == LV_DISPLAY_ROTATION_90) || (rotation == LV_DISPLAY_ROTATION_270))
+    {
+        lv_area_t rotated_area = *refresh_area;
+        int32_t area_w = lv_area_get_width(refresh_area);
+        int32_t area_h = lv_area_get_height(refresh_area);
+        int32_t buf_w = lv_area_get_width(p_buf_area);
+    
+        lv_color_format_t cf = lv_display_get_color_format(disp_drv);
+        uint32_t px_size = lv_color_format_get_size(cf);
+        uint32_t src_stride = lv_draw_buf_width_to_stride(buf_w, cf);
+        uint32_t dst_stride = lv_draw_buf_width_to_stride(area_h, cf);
+    
+        uint8_t *src = color_p
+                       + (refresh_area->y1 - p_buf_area->y1) * src_stride
+                       + (refresh_area->x1 - p_buf_area->x1) * px_size;
+    
+        lv_draw_sw_rotate(src, rotate_buf,
+                          area_w, area_h,
+                          src_stride, dst_stride,
+                          rotation, cf);
+        
+        lv_display_rotate_area(disp_drv, &rotated_area);
+        
+        LCD_AreaDef clip_area =
+        {
+            .x0 = rotated_area.x1 + disp_drv->offset_x,
+            .y0 = rotated_area.y1 + disp_drv->offset_y,
+            .x1 = rotated_area.x2 + disp_drv->offset_x,
+            .y1 = rotated_area.y2 + disp_drv->offset_y
+        };
+    
+        if ((clip_area.x0 > clip_area.x1) || (clip_area.y0 > clip_area.y1))
+        {
+            lv_disp_flush_ready(disp_drv);
+            return;
+        }
+    
+        rt_err_t err = rt_sem_take(&lcd_sema, rt_tick_from_millisecond(LCD_FLUSH_EXP_MS));
+        RT_ASSERT(RT_EOK == err);
+    
+        lcd_flushing_disp_drv = disp_drv;
+    
+    #ifdef BSP_USING_LCD_FRAMEBUFFER
+        LCD_AreaDef src_area = clip_area;
+    
+        drv_lcd_fb_write_send(&clip_area,
+                              &src_area,
+                              rotate_buf,
+                              lcd_flush_done,
+                              disp_drv->flushing_last);
+    #else
+        debug_lcd_flush_start(clip_area.x0, clip_area.y0, clip_area.x1, clip_area.y1);
+        rt_device_set_tx_complete(device, lcd_flush_done);
+        rt_graphix_ops(device)->set_window(clip_area.x0, clip_area.y0, clip_area.x1, clip_area.y1);
+        rt_graphix_ops(device)->draw_rect_async((const char *)rotate_buf,
+                                                0, 0,
+                                                lv_area_get_width(&rotated_area) - 1,
+                                                lv_area_get_height(&rotated_area) - 1);
+    #endif
+        
+        return;
+    }
+    
     LCD_AreaDef clip_area =   //Buf clip area
     {
         .x0 = refresh_area->x1 + disp_drv->offset_x,
@@ -418,7 +487,6 @@ static void lcd_flush(lv_display_t *disp_drv, const lv_area_t *refresh_area, uin
     rt_graphix_ops(device)->draw_rect_async((const char *)color_p, src_area.x0,
                                             src_area.y0, src_area.x1, src_area.y1);
 #endif /* BSP_USING_LCD_FRAMEBUFFER */
-
 }
 
 

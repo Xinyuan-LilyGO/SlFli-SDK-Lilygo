@@ -22,6 +22,10 @@ uint32_t g_tmp_pos = 0;
 
 audio_manager_t audio;
 
+#define AUDIO_RECORD_DISCARD_FRAMES 24
+#define AUDIO_RECORD_MIC_GAIN_DB    10
+#define AUDIO_RECORD_DIRECT_SD_WRITE 0
+
 #define AUDIO_LOG_DEBUG 1
 #ifdef AUDIO_LOG_DEBUG
     #define AUDIO_LOG_DEBUG(...) rt_kprintf("[AUDIO_MANAGER_LIB]" __VA_ARGS__)
@@ -31,6 +35,32 @@ audio_manager_t audio;
 
 /* Funtion */
 void mp3_proc_thread_entry(void *params);
+extern int Set_mic_gain(int8_t value);
+
+#ifdef RT_USING_PM
+static int audio_pm_suspend(const struct rt_device *device, uint8_t mode)
+{
+    if (audio.is_recording)
+        audio_record_stop();
+    if (audio.is_playing)
+        audio_play_stop();
+    audio_pa_close();
+    rt_device_close(audio.audcodec_dev);
+    rt_device_close(audio.audprc_dev);
+    return 0;
+}
+
+static void audio_pm_resume(const struct rt_device *device, uint8_t mode)
+{
+    audio_manager_init(); // 重新打开设备 + 创建事件
+    audio_pa_open();
+}
+
+static const struct rt_device_pm_ops audio_manager_pm_op = {
+    .suspend = audio_pm_suspend,
+    .resume = audio_pm_resume,
+};
+#endif
 
 static bool has_wav_ext(const char *path)
 {
@@ -55,6 +85,63 @@ static void wav_header_init(wav_header_t *hdr, uint32_t rate, uint32_t ch,
     hdr->bits_per_sample = bits;
     hdr->block_align = ch * (bits / 8);
     hdr->byte_rate = rate * hdr->block_align;
+}
+
+static rt_bool_t write_all(int fd, const void *buf, uint32_t size)
+{
+    const uint8_t *ptr = (const uint8_t *)buf;
+    uint32_t written_total = 0;
+
+    while (written_total < size)
+    {
+        int written = write(fd, ptr + written_total, size - written_total);
+        if (written <= 0)
+            return false;
+        written_total += written;
+    }
+
+    return true;
+}
+
+static rt_bool_t read_all(int fd, void *buf, uint32_t size)
+{
+    uint8_t *ptr = (uint8_t *)buf;
+    uint32_t read_total = 0;
+
+    while (read_total < size)
+    {
+        int read_len = read(fd, ptr + read_total, size - read_total);
+        if (read_len <= 0)
+            return false;
+        read_total += read_len;
+    }
+
+    return true;
+}
+
+static int32_t pcm16_peak_abs(const uint8_t *buf, uint32_t size)
+{
+    const int16_t *samples = (const int16_t *)buf;
+    uint32_t sample_count = size / sizeof(int16_t);
+    int32_t peak = 0;
+
+    for (uint32_t i = 0; i < sample_count; i++)
+    {
+        int32_t sample = samples[i];
+        int32_t abs_sample = sample < 0 ? -sample : sample;
+        if (abs_sample > peak)
+            peak = abs_sample;
+    }
+
+    return peak;
+}
+
+static int audio_get_codec_volume(void)
+{
+    if (audio.samplerate == 16000 || audio.samplerate == 8000)
+        return eq_get_tel_volumex2((uint8_t)audio.volume);
+
+    return eq_get_music_volumex2((uint8_t)audio.volume);
 }
 
 /**
@@ -209,10 +296,11 @@ static void config_tx(void)
     rt_device_control(audio.audprc_dev, AUDIO_CTL_CONFIGURE, &caps);
 
     // /* Set volume */
-    AUDIO_LOG_DEBUG("init volume=%d\n", audio.volume);
-    int volumex2 = eq_get_music_volumex2(audio.volume);
+    int codec_volume = audio_get_codec_volume();
+    AUDIO_LOG_DEBUG("init volume level=%d codec_volume=%d\n", audio.volume,
+                    codec_volume);
     rt_device_control(audio.audcodec_dev, AUDIO_CTL_SETVOLUME,
-                      (void *)volumex2);
+                      (void *)codec_volume);
 }
 
 static void start_rx(void)
@@ -248,6 +336,8 @@ static void start_tx(void)
     rt_device_control(audio.audcodec_dev, AUDIO_CTL_START, &stream_audcodec);
     rt_device_set_tx_complete(audio.audprc_dev, audio_tx_done);
     rt_device_control(audio.audprc_dev, AUDIO_CTL_START, &stream_audprc);
+    if (audio.tx_wirte_event)
+        rt_event_send(audio.tx_wirte_event, 1);
 
     audio_pa_open();
 
@@ -302,10 +392,16 @@ rt_err_t audio_manager_init(void)
     audio.channels = DEFAULT_CHANNELS;
     audio.bit_depth = DEFAULT_BIT_DEPTH;
     audio.is_recording = false;
+    audio.record_full = false;
     audio.is_playing = false;
     audio.play_paused = false;
     audio.record_paused = false;
     audio.is_wav = false;
+    audio.file_fd = -1;
+    audio.file_path = NULL;
+    audio.ram_play_size = 0;
+    audio.rx_thread = NULL;
+    audio.tx_thread = NULL;
     audio.mp3_handle = NULL;
     audio.mp3_playlist_count = 0;
     audio.mp3_current_index = -1;
@@ -314,12 +410,24 @@ rt_err_t audio_manager_init(void)
     audio.current_db = -100;
 
     // create sem and threads.
-    audio.tx_wirte_event = rt_event_create("tx_wirte_event", RT_IPC_FLAG_FIFO);
-    audio.rx_ind_event = rt_event_create("rx_ind_event", RT_IPC_FLAG_FIFO);
-    audio.mp3_mq =
-        rt_mq_create("mp3_mq", sizeof(mp3_ctrl_info_t), 60, RT_IPC_FLAG_FIFO);
+    if (audio.tx_wirte_event == NULL)
+        audio.tx_wirte_event =
+            rt_event_create("tx_wirte_event", RT_IPC_FLAG_FIFO);
+    if (audio.rx_ind_event == NULL)
+        audio.rx_ind_event = rt_event_create("rx_ind_event", RT_IPC_FLAG_FIFO);
+    if (audio.tx_complete_sem == NULL)
+        audio.tx_complete_sem = rt_sem_create("tx_done", 0, RT_IPC_FLAG_FIFO);
+    if (audio.rx_complete_sem == NULL)
+        audio.rx_complete_sem = rt_sem_create("rx_done", 0, RT_IPC_FLAG_FIFO);
+    if (audio.mp3_mq == NULL)
+        audio.mp3_mq =
+            rt_mq_create("mp3_mq", sizeof(mp3_ctrl_info_t), 60, RT_IPC_FLAG_FIFO);
 
     srand(rt_tick_get());
+
+#ifdef RT_USING_PM
+    rt_pm_device_register(NULL, &audio_manager_pm_op);
+#endif
 
     return RT_EOK;
 }
@@ -339,7 +447,8 @@ void audio_set_volume(int vol)
     audio.volume = vol;
 
     audio_server_set_private_volume(AUDIO_TYPE_BT_MUSIC, (uint8_t)audio.volume);
-    audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC,(uint8_t)audio.volume);
+    audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC,
+                                    (uint8_t)audio.volume);
     AUDIO_LOG_DEBUG("Volume set to %d\n", audio.volume);
 }
 
@@ -445,6 +554,8 @@ static void audprc_rx_entry(void *parameter)
     rt_size_t get_mic_data_len;
     uint32_t wav_data_size = 0;
     rt_bool_t is_wav = audio.is_wav;
+    uint8_t discard_frames = AUDIO_RECORD_DISCARD_FRAMES;
+    uint8_t debug_saved_frames = 0;
     g_tmp_pos = 0;
     memset(g_audrx_buf, 0, sizeof(g_audrx_buf));
     while (audio.is_recording)
@@ -452,15 +563,24 @@ static void audprc_rx_entry(void *parameter)
         rt_event_recv(audio.rx_ind_event, 1,
                       RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
                       RT_WAITING_FOREVER, &evt);
+        if (!audio.is_recording)
+            break;
         while (1)
         {
+#ifdef RT_USING_PM
+            rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
             /* RX read (from mic)*/
             get_mic_data_len = rt_device_read(audio.audprc_dev, 0, mic_data,
                                               AUDIO_BUF_SIZE / 2);
+#ifdef RT_USING_PM
+            rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
             if (get_mic_data_len != (AUDIO_BUF_SIZE / 2))
             {
                 AUDIO_LOG_DEBUG("Got abnormal audio size = %d\n",
                                 get_mic_data_len);
+                break;
             }
 
             /* 计算当前麦克风 dBFS 值 */
@@ -492,9 +612,15 @@ static void audprc_rx_entry(void *parameter)
             if (audio.is_recording == false)
                 break;
 
-            if (audio.file_path)
+            if (discard_frames > 0)
             {
-                if (audio.file_fd > 0)
+                discard_frames--;
+                continue;
+            }
+
+            if (AUDIO_RECORD_DIRECT_SD_WRITE && audio.file_path)
+            {
+                if (audio.file_fd >= 0)
                 {
                     int written =
                         write(audio.file_fd, mic_data, AUDIO_BUF_SIZE / 2);
@@ -526,10 +652,21 @@ static void audprc_rx_entry(void *parameter)
                 {
                     memcpy(&g_audrx_buf[g_tmp_pos], mic_data,
                            AUDIO_BUF_SIZE / 2);
+                    if (debug_saved_frames < 5)
+                    {
+                        AUDIO_LOG_DEBUG("RX save frame=%d peak=%d pcm0=%d\n",
+                                        debug_saved_frames,
+                                        pcm16_peak_abs(mic_data,
+                                                       AUDIO_BUF_SIZE / 2),
+                                        ((int16_t *)mic_data)[0]);
+                        debug_saved_frames++;
+                    }
                     g_tmp_pos += (AUDIO_BUF_SIZE / 2);
+                    wav_data_size += (AUDIO_BUF_SIZE / 2);
                 }
                 else
                 {
+                    audio.record_full = true;
                     audio.is_recording = false;
                     break;
                 }
@@ -540,8 +677,13 @@ static void audprc_rx_entry(void *parameter)
     AUDIO_LOG_DEBUG("Record finished.\n");
     stop_rx();
     audio.is_recording = false;
+    audio.ram_play_size = wav_data_size;
+    AUDIO_LOG_DEBUG("Record RAM peak=%d, data_size=%d\n",
+                    pcm16_peak_abs(g_audrx_buf, wav_data_size),
+                    wav_data_size);
     if (audio.file_fd >= 0)
     {
+        int final_size;
         if (is_wav)
         {
             wav_header_t hdr;
@@ -550,20 +692,61 @@ static void audprc_rx_entry(void *parameter)
             hdr.data_size = wav_data_size;
             hdr.riff_size = wav_data_size + sizeof(wav_header_t) - 8;
             lseek(audio.file_fd, 0, SEEK_SET);
-            write(audio.file_fd, &hdr, sizeof(hdr));
+            if (write(audio.file_fd, &hdr, sizeof(hdr)) != sizeof(hdr))
+            {
+                AUDIO_LOG_DEBUG("Update WAV header failed\n");
+            }
             AUDIO_LOG_DEBUG("WAV header updated, data_size=%d\n",
                             wav_data_size);
+            lseek(audio.file_fd, 0, SEEK_END);
         }
+        if (!write_all(audio.file_fd, g_audrx_buf, wav_data_size))
+        {
+            AUDIO_LOG_DEBUG("Write record data failed, data_size=%d\n",
+                            wav_data_size);
+        }
+        else
+        {
+            AUDIO_LOG_DEBUG("Record data flushed, data_size=%d\n",
+                            wav_data_size);
+        }
+        final_size = lseek(audio.file_fd, 0, SEEK_END);
+        AUDIO_LOG_DEBUG("Record file size=%d\n", final_size);
+        fsync(audio.file_fd);
+        AUDIO_LOG_DEBUG("Record RAM peak after flush=%d\n",
+                        pcm16_peak_abs(g_audrx_buf, wav_data_size));
         close(audio.file_fd);
         audio.file_fd = -1;
         audio.file_path = NULL;
     }
+    audio.rx_thread = NULL;
+    if (audio.rx_complete_sem)
+        rt_sem_release(audio.rx_complete_sem);
 }
 
-void audio_record_start(const char *filepath)
+rt_err_t audio_record_start(const char *filepath)
 {
+    if (audio.is_playing)
+        audio_play_stop();
+
+    if (audio.tx_thread)
+        return -RT_EBUSY;
+
+    if (audio.rx_thread)
+        return -RT_EBUSY;
+
+    if (audio.is_recording)
+        return -RT_EBUSY;
+
     /* 停止 dB 监听，避免冲突 */
     audio_db_monitor_stop();
+
+    audio.samplerate = DEFAULT_SAMPLERATE;
+    audio.channels = DEFAULT_CHANNELS;
+    audio.bit_depth = DEFAULT_BIT_DEPTH;
+    audio.current_db = -100;
+    audio.record_full = false;
+    audio.ram_play_size = 0;
 
     if (filepath == NULL)
     {
@@ -573,13 +756,15 @@ void audio_record_start(const char *filepath)
     {
         audio.file_path = filepath;
         AUDIO_LOG_DEBUG("Start recording to %s\n", audio.file_path);
+        unlink(audio.file_path);
 
         audio.file_fd =
             open(audio.file_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (audio.file_fd < 0)
         {
             AUDIO_LOG_DEBUG("Cannot open file %s for write", audio.file_path);
-            return;
+            audio.file_path = NULL;
+            return -RT_ERROR;
         }
 
         // WAV format: write header before recording
@@ -589,26 +774,47 @@ void audio_record_start(const char *filepath)
             wav_header_t hdr;
             wav_header_init(&hdr, audio.samplerate, audio.channels,
                             audio.bit_depth);
-            write(audio.file_fd, &hdr, sizeof(hdr));
+            if (write(audio.file_fd, &hdr, sizeof(hdr)) != sizeof(hdr))
+            {
+                AUDIO_LOG_DEBUG("Write WAV header failed:%s\n",
+                                audio.file_path);
+                close(audio.file_fd);
+                audio.file_path = NULL;
+                audio.file_fd = -1;
+                return -RT_ERROR;
+            }
             AUDIO_LOG_DEBUG("WAV header written\n");
         }
     }
 
+    if (audio.rx_complete_sem)
+        rt_sem_take(audio.rx_complete_sem, 0);
+    if (audio.rx_ind_event)
+    {
+        rt_uint32_t evt;
+        rt_event_recv(audio.rx_ind_event, 1,
+                      RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, 0, &evt);
+    }
     audio.is_recording = true;
+    audio.record_full = false;
     audio.rx_thread =
         rt_thread_create("audprc_rx", audprc_rx_entry, NULL, 2048,
                          RT_THREAD_PRIORITY_HIGH, RT_THREAD_TICK_DEFAULT);
     if (audio.rx_thread == NULL)
     {
         AUDIO_LOG_DEBUG("Create rx thread fail\n");
-        close(audio.file_fd);
+        if (audio.file_fd >= 0)
+            close(audio.file_fd);
         audio.file_path = NULL;
         audio.file_fd = -1;
-        return;
+        audio.is_recording = false;
+        return -RT_ERROR;
     }
     rt_thread_startup(audio.rx_thread);
     config_rx();
+    Set_mic_gain(AUDIO_RECORD_MIC_GAIN_DB);
     start_rx();
+    return RT_EOK;
 }
 
 void audio_record_pause(void)
@@ -625,9 +831,14 @@ void audio_record_resume(void)
 
 void audio_record_stop(void)
 {
-    if (!audio.is_recording)
+    if (!audio.is_recording && !audio.rx_thread)
         return;
     audio.is_recording = false;
+    audio.record_paused = false;
+    if (audio.rx_ind_event)
+        rt_event_send(audio.rx_ind_event, 1);
+    if (audio.rx_thread && audio.rx_complete_sem)
+        rt_sem_take(audio.rx_complete_sem, rt_tick_from_millisecond(5000));
     AUDIO_LOG_DEBUG("Recording stop\n");
 }
 
@@ -637,25 +848,35 @@ static void audprc_tx_entry(void *parameter)
     AUDIO_LOG_DEBUG("%s\n", __func__);
     rt_uint32_t evt;
     uint32_t wr_offset = 0;
+    rt_bool_t first_write = true;
     while (audio.is_playing)
     {
         rt_event_recv(audio.tx_wirte_event, 1,
                       RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
                       RT_WAITING_FOREVER, &evt);
+        if (!audio.is_playing)
+            break;
 
         /* 暂停时写入静音保持 DMA 运转 */
         if (audio.play_paused)
         {
             memset(sd_play_data, 0, AUDIO_BUF_SIZE / 2);
+#ifdef RT_USING_PM
+            rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
             rt_device_write(audio.audprc_dev, 0, sd_play_data,
                             AUDIO_BUF_SIZE / 2);
+#ifdef RT_USING_PM
+            rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
             continue;
         }
 
         if (audio.file_path)
         {
-            if (audio.file_fd > 0)
+            if (audio.file_fd >= 0)
             {
+                memset(sd_play_data, 0, AUDIO_BUF_SIZE / 2);
                 int paly_data_len =
                     read(audio.file_fd, sd_play_data, AUDIO_BUF_SIZE / 2);
                 if (paly_data_len <= 0)
@@ -667,6 +888,14 @@ static void audprc_tx_entry(void *parameter)
 
                 int len = rt_device_write(audio.audprc_dev, 0, sd_play_data,
                                           AUDIO_BUF_SIZE / 2);
+                if (first_write)
+                {
+                    first_write = false;
+                    AUDIO_LOG_DEBUG(
+                        "TX first file write len=%d pcm0=%d peak=%d\n",
+                        len, ((int16_t *)sd_play_data)[0],
+                        pcm16_peak_abs(sd_play_data, AUDIO_BUF_SIZE / 2));
+                }
                 if (len != (AUDIO_BUF_SIZE / 2))
                 {
                     AUDIO_LOG_DEBUG("Abnormal write len :%d\n", len);
@@ -675,17 +904,37 @@ static void audprc_tx_entry(void *parameter)
         }
         else /* 读取RAM的录音文件*/
         {
-            int len =
-                rt_device_write(audio.audprc_dev, 0, &g_audrx_buf[wr_offset],
-                                AUDIO_BUF_SIZE / 2);
+            uint32_t remaining;
+            uint32_t write_size;
+            if (wr_offset >= audio.ram_play_size)
+            {
+                AUDIO_LOG_DEBUG("End of RAM playback\n");
+                break;
+            }
+
+            remaining = audio.ram_play_size - wr_offset;
+            write_size = remaining > (AUDIO_BUF_SIZE / 2) ?
+                         (AUDIO_BUF_SIZE / 2) : remaining;
+            memset(sd_play_data, 0, AUDIO_BUF_SIZE / 2);
+            memcpy(sd_play_data, &g_audrx_buf[wr_offset], write_size);
+
+            int len = rt_device_write(audio.audprc_dev, 0, sd_play_data,
+                                      AUDIO_BUF_SIZE / 2);
+            if (first_write)
+            {
+                first_write = false;
+                AUDIO_LOG_DEBUG("TX first RAM write len=%d pcm0=%d peak=%d\n",
+                                len, ((int16_t *)sd_play_data)[0],
+                                pcm16_peak_abs(sd_play_data,
+                                               AUDIO_BUF_SIZE / 2));
+            }
             if (len != (AUDIO_BUF_SIZE / 2))
             {
                 AUDIO_LOG_DEBUG("Abnormal write len :%d\n", len);
             }
-            wr_offset += (AUDIO_BUF_SIZE / 2);
-            if (wr_offset + (AUDIO_BUF_SIZE / 2) >= AUDRX_BUF_MAX)
+            wr_offset += write_size;
+            if (wr_offset >= audio.ram_play_size)
             {
-                audio.is_playing = false;
                 break;
             }
         }
@@ -699,10 +948,26 @@ static void audprc_tx_entry(void *parameter)
         close(audio.file_fd);
         audio.file_fd = -1;
     }
+    audio.file_path = NULL;
+    audio.tx_thread = NULL;
+    if (audio.tx_complete_sem)
+        rt_sem_release(audio.tx_complete_sem);
 }
 
-void audio_play_start(const char *filepath)
+rt_err_t audio_play_start(const char *filepath)
 {
+    if (audio.is_recording)
+        audio_record_stop();
+
+    if (audio.rx_thread)
+        return -RT_EBUSY;
+
+    if (audio.tx_thread)
+        return -RT_EBUSY;
+
+    if (audio.is_playing)
+        return -RT_EBUSY;
+
     if (filepath == NULL)
     {
         AUDIO_LOG_DEBUG("File path is NULL,rx save ram\n");
@@ -710,36 +975,119 @@ void audio_play_start(const char *filepath)
     else
     {
         audio.file_path = filepath;
-        AUDIO_LOG_DEBUG("Start recording to %s\n", audio.file_path);
+        AUDIO_LOG_DEBUG("Start playing %s\n", audio.file_path);
 
         audio.file_fd = open(audio.file_path, O_RDONLY);
         if (audio.file_fd < 0)
         {
-            AUDIO_LOG_DEBUG("Cannot open file %s for write", audio.file_path);
-            return;
+            AUDIO_LOG_DEBUG("Cannot open file %s for read", audio.file_path);
+            audio.file_path = NULL;
+            return -RT_ERROR;
         }
 
         // WAV format: skip header for playback
         if (has_wav_ext(audio.file_path))
         {
-            lseek(audio.file_fd, sizeof(wav_header_t), SEEK_SET);
+            wav_header_t hdr;
+            int file_size = lseek(audio.file_fd, 0, SEEK_END);
+            AUDIO_LOG_DEBUG("Playback file size=%d\n", file_size);
+            if (file_size <= sizeof(wav_header_t))
+            {
+                AUDIO_LOG_DEBUG("WAV file has no audio data:%s\n",
+                                audio.file_path);
+                close(audio.file_fd);
+                audio.file_fd = -1;
+                audio.file_path = NULL;
+                return -RT_ERROR;
+            }
+            lseek(audio.file_fd, 0, SEEK_SET);
+            if (read(audio.file_fd, &hdr, sizeof(hdr)) != sizeof(hdr) ||
+                memcmp(hdr.riff_id, "RIFF", 4) != 0 ||
+                memcmp(hdr.wave_id, "WAVE", 4) != 0 ||
+                memcmp(hdr.data_id, "data", 4) != 0)
+            {
+                AUDIO_LOG_DEBUG("Invalid WAV file:%s\n", audio.file_path);
+                close(audio.file_fd);
+                audio.file_fd = -1;
+                audio.file_path = NULL;
+                return -RT_ERROR;
+            }
+            audio.samplerate = hdr.sample_rate;
+            audio.channels = hdr.num_channels;
+            audio.bit_depth = hdr.bits_per_sample;
             AUDIO_LOG_DEBUG("Skipped WAV header for playback\n");
+
+            uint32_t data_size = hdr.data_size;
+            uint32_t max_data_size = file_size - sizeof(wav_header_t);
+            if (data_size == 0 || data_size > max_data_size)
+                data_size = max_data_size;
+            if (data_size <= AUDRX_BUF_MAX)
+            {
+                if (!read_all(audio.file_fd, g_audrx_buf, data_size))
+                {
+                    AUDIO_LOG_DEBUG("Load WAV to RAM failed, data_size=%d\n",
+                                    data_size);
+                    close(audio.file_fd);
+                    audio.file_fd = -1;
+                    audio.file_path = NULL;
+                    audio.ram_play_size = 0;
+                    return -RT_ERROR;
+                }
+                else
+                {
+                    close(audio.file_fd);
+                    audio.file_fd = -1;
+                    audio.file_path = NULL;
+                    audio.ram_play_size = data_size;
+                    AUDIO_LOG_DEBUG("Loaded WAV to RAM, data_size=%d\n",
+                                    data_size);
+                }
+            }
         }
     }
 
+    if (audio.file_path == NULL && audio.ram_play_size == 0)
+    {
+        AUDIO_LOG_DEBUG("No RAM audio data for playback\n");
+        return -RT_ERROR;
+    }
+
+    AUDIO_LOG_DEBUG("Playback source=%s, ram_play_size=%d\n",
+                    audio.file_path ? "file" : "ram", audio.ram_play_size);
+    if (audio.file_path == NULL)
+    {
+        AUDIO_LOG_DEBUG("RAM playback peak=%d\n",
+                        pcm16_peak_abs(g_audrx_buf, audio.ram_play_size));
+    }
+
+    if (audio.tx_complete_sem)
+        rt_sem_take(audio.tx_complete_sem, 0);
+    if (audio.tx_wirte_event)
+    {
+        rt_uint32_t evt;
+        rt_event_recv(audio.tx_wirte_event, 1,
+                      RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, 0, &evt);
+    }
     audio.is_playing = true;
     audio.tx_thread =
         rt_thread_create("audprc_tx", audprc_tx_entry, NULL, 2048,
-                         RT_THREAD_PRIORITY_HIGH, RT_THREAD_TICK_DEFAULT);
+                         RT_THREAD_PRIORITY_HIGH,
+                         RT_THREAD_TICK_DEFAULT);
     if (audio.tx_thread == NULL)
     {
         AUDIO_LOG_DEBUG("Create audprc_tx thread fail\n");
-        return;
+        if (audio.file_fd >= 0)
+            close(audio.file_fd);
+        audio.file_path = NULL;
+        audio.file_fd = -1;
+        audio.is_playing = false;
+        return -RT_ERROR;
     }
     rt_thread_startup(audio.tx_thread);
 
     config_tx();
     start_tx();
+    return RT_EOK;
 }
 
 void audio_play_pause(void)
@@ -764,11 +1112,15 @@ void audio_play_resume(void)
 
 void audio_play_stop(void)
 {
-    if (!audio.is_playing)
+    if (!audio.is_playing && !audio.tx_thread)
         return;
 
     audio.is_playing = false;
     audio.play_paused = false;
+    if (audio.tx_wirte_event)
+        rt_event_send(audio.tx_wirte_event, 1);
+    if (audio.tx_thread && audio.tx_complete_sem)
+        rt_sem_take(audio.tx_complete_sem, rt_tick_from_millisecond(3000));
 
     AUDIO_LOG_DEBUG("Playing stop\n");
 }

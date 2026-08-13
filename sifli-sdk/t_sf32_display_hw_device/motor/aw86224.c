@@ -9,6 +9,7 @@
  */
 
 #include "aw86224.h"
+#include "haptic_chip_waveform_library.h"
 #include "xl9555.h"
 #include <rtdevice.h>
 #include <rtthread.h>
@@ -26,93 +27,21 @@ struct aw86224_device
 {
     struct rt_i2c_bus_device *i2c_bus;
     rt_uint8_t init_flag;
+    rt_uint8_t i2c_opened;
     rt_uint32_t f0_calibrated;
 };
 static struct aw86224_device g_aw86224_dev = {0};
+static uint8_t _gain = 0x80; /* Default gain value */
 
 /* Forward declarations */
 static rt_err_t aw86224_write_reg(rt_uint8_t reg, rt_uint8_t data);
 static rt_err_t aw86224_read_reg(rt_uint8_t reg, rt_uint8_t *data);
 static rt_err_t aw86224_write_bits(rt_uint8_t reg, rt_uint8_t mask,
                                    rt_uint8_t data);
+static rt_err_t aw86224_wait_state(rt_uint8_t expected_state,
+                                   rt_uint32_t timeout_ms);
 static rt_err_t aw86224_wait_standby(rt_uint32_t timeout_ms);
 
-rt_uint8_t aw862xx_ram_data[] = {
-    // Default 170HZ waveform
-    0x55, 0x08, 0x11, 0x09, 0x76, 0x09, 0x77, 0x0a, 0x80, 0x0a, 0x81, 0x0b,
-    0x2e, 0x0b, 0x2f, 0x0b, 0x61, 0x00, 0x0e, 0x1d, 0x2b, 0x38, 0x45, 0x50,
-    0x5b, 0x63, 0x6b, 0x71, 0x75, 0x77, 0x77, 0x76, 0x73, 0x6e, 0x68, 0x5f,
-    0x56, 0x4b, 0x3f, 0x32, 0x24, 0x16, 0x07, 0xfa, 0xeb, 0xdd, 0xcf, 0xc2,
-    0xb6, 0xab, 0xa1, 0x99, 0x92, 0x8d, 0x8a, 0x89, 0x89, 0x8b, 0x8f, 0x95,
-    0x9c, 0xa5, 0xaf, 0xba, 0xc7, 0xd4, 0xe2, 0xf1, 0x00, 0x0d, 0x1c, 0x2a,
-    0x37, 0x44, 0x50, 0x5a, 0x63, 0x6a, 0x70, 0x74, 0x77, 0x77, 0x76, 0x73,
-    0x6e, 0x68, 0x60, 0x57, 0x4c, 0x40, 0x33, 0x25, 0x17, 0x08, 0xfb, 0xec,
-    0xde, 0xd0, 0xc3, 0xb6, 0xab, 0xa2, 0x99, 0x93, 0x8e, 0x8a, 0x89, 0x89,
-    0x8b, 0x8f, 0x94, 0x9c, 0xa4, 0xae, 0xba, 0xc6, 0xd3, 0xe1, 0xf0, 0xff,
-    0x0c, 0x1b, 0x29, 0x37, 0x43, 0x4f, 0x59, 0x62, 0x6a, 0x70, 0x74, 0x77,
-    0x77, 0x76, 0x73, 0x6f, 0x69, 0x61, 0x57, 0x4c, 0x41, 0x34, 0x26, 0x18,
-    0x09, 0xfb, 0xed, 0xde, 0xd1, 0xc3, 0xb7, 0xac, 0xa2, 0x9a, 0x93, 0x8e,
-    0x8a, 0x89, 0x89, 0x8b, 0x8e, 0x94, 0x9b, 0xa4, 0xae, 0xb9, 0xc5, 0xd3,
-    0xe1, 0xef, 0x00, 0xf3, 0xe5, 0xd8, 0xcb, 0xbf, 0xb4, 0xaa, 0xa2, 0x9a,
-    0x95, 0x91, 0x8e, 0x8e, 0x8e, 0x91, 0x95, 0x9b, 0xa3, 0xab, 0xb5, 0xc0,
-    0xcd, 0xd9, 0xe7, 0xf4, 0x01, 0x0f, 0x1d, 0x2a, 0x37, 0x43, 0x4e, 0x57,
-    0x60, 0x67, 0x6c, 0x70, 0x72, 0x72, 0x71, 0x6e, 0x6a, 0x64, 0x5c, 0x53,
-    0x49, 0x3e, 0x32, 0x25, 0x17, 0x0a, 0xfd, 0xef, 0xe1, 0xd4, 0xc7, 0xbc,
-    0xb1, 0xa8, 0x9f, 0x99, 0x93, 0x90, 0x8e, 0x8e, 0x8f, 0x92, 0x97, 0x9d,
-    0xa5, 0xae, 0xb8, 0xc4, 0xd0, 0xdd, 0xea, 0xf8, 0x05, 0x13, 0x21, 0x2e,
-    0x3a, 0x46, 0x50, 0x5a, 0x62, 0x68, 0x6d, 0x71, 0x72, 0x72, 0x71, 0x6d,
-    0x68, 0x62, 0x5a, 0x51, 0x46, 0x3b, 0x2e, 0x21, 0x14, 0x00, 0xf9, 0xf2,
-    0xeb, 0xe4, 0xde, 0xd8, 0xd3, 0xcf, 0xcb, 0xc8, 0xc6, 0xc5, 0xc5, 0xc5,
-    0xc7, 0xc9, 0xcc, 0xd1, 0xd5, 0xdb, 0xe1, 0xe7, 0xee, 0xf5, 0xfd, 0x03,
-    0x0a, 0x11, 0x18, 0x1f, 0x25, 0x2a, 0x2f, 0x33, 0x37, 0x39, 0x3b, 0x3b,
-    0x3b, 0x3a, 0x38, 0x35, 0x32, 0x2d, 0x28, 0x23, 0x1c, 0x16, 0x0f, 0x07,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x07, 0x16, 0x24, 0x32, 0x3f, 0x4b, 0x56, 0x5f, 0x67, 0x6e,
-    0x73, 0x76, 0x77, 0x77, 0x75, 0x71, 0x6b, 0x64, 0x5b, 0x51, 0x45, 0x39,
-    0x2b, 0x1d, 0x0f, 0x00, 0xf2, 0xe4, 0xd6, 0xc8, 0xbc, 0xb0, 0xa6, 0x9d,
-    0x95, 0x90, 0x8b, 0x89, 0x89, 0x8a, 0x8d, 0x92, 0x98, 0xa0, 0xaa, 0xb5,
-    0xc1, 0xce, 0xdb, 0xea, 0xf8, 0x06, 0x15, 0x23, 0x31, 0x3e, 0x4a, 0x55,
-    0x5f, 0x67, 0x6e, 0x73, 0x76, 0x77, 0x77, 0x75, 0x71, 0x6b, 0x64, 0x5b,
-    0x51, 0x46, 0x39, 0x2c, 0x1e, 0x10, 0x01, 0xf3, 0xe5, 0xd7, 0xc9, 0xbc,
-    0xb1, 0xa6, 0x9d, 0x96, 0x90, 0x8c, 0x89, 0x89, 0x8a, 0x8d, 0x91, 0x98,
-    0xa0, 0xa9, 0xb4, 0xc0, 0xcd, 0xda, 0xe9, 0xf7, 0x05, 0x14, 0x22, 0x30,
-    0x3d, 0x49, 0x54, 0x5e, 0x66, 0x6d, 0x72, 0x76, 0x77, 0x77, 0x75, 0x71,
-    0x6c, 0x65, 0x5c, 0x52, 0x47, 0x3a, 0x2d, 0x1f, 0x11, 0x00, 0x0f, 0x1e,
-    0x2c, 0x3a, 0x47, 0x53, 0x5e, 0x67, 0x6f, 0x75, 0x79, 0x7c, 0x7c, 0x7b,
-    0x78, 0x74, 0x6d, 0x65, 0x5b, 0x50, 0x44, 0x37, 0x29, 0x1a, 0x0b, 0xfd,
-    0xee, 0xdf, 0xd0, 0xc3, 0xb6, 0xaa, 0xa0, 0x97, 0x90, 0x8a, 0x86, 0x84,
-    0x84, 0x85, 0x89, 0x8e, 0x95, 0x9d, 0xa7, 0xb3, 0xbf, 0xcd, 0xdb, 0xea,
-    0xf9, 0x07, 0x16, 0x25, 0x33, 0x41, 0x4d, 0x59, 0x63, 0x6b, 0x72, 0x77,
-    0x7b, 0x7c, 0x7c, 0x7a, 0x76, 0x70, 0x69, 0x60, 0x56, 0x4a, 0x3d, 0x30,
-    0x21, 0x13, 0x00, 0xfa, 0xf4, 0xee, 0xe9, 0xe4, 0xdf, 0xdb, 0xd7, 0xd4,
-    0xd1, 0xd0, 0xcf, 0xcf, 0xcf, 0xd0, 0xd2, 0xd5, 0xd9, 0xdd, 0xe1, 0xe6,
-    0xeb, 0xf1, 0xf7, 0xfd, 0x02, 0x08, 0x0e, 0x14, 0x1a, 0x1f, 0x23, 0x27,
-    0x2b, 0x2d, 0x30, 0x31, 0x31, 0x31, 0x30, 0x2f, 0x2c, 0x29, 0x26, 0x21,
-    0x1d, 0x17, 0x12, 0x0c, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x52, 0x63, 0x6d, 0x73, 0x78, 0x7a, 0x7c, 0x7d,
-    0x7d, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7d, 0x7c, 0x7b, 0x79, 0x76,
-    0x71, 0x68, 0x5b, 0x47, 0x26, 0xf2, 0xc8, 0xae, 0x9d, 0x93, 0x8c, 0x88,
-    0x86, 0x84, 0x83, 0x83, 0x82, 0x82, 0x82, 0x82, 0x83, 0x83, 0x84, 0x85,
-    0x88, 0x8b, 0x91, 0x9a, 0xa9, 0xc1, 0xe6, 0x07, 0x17, 0x26, 0x34, 0x42,
-    0x4f, 0x5a, 0x64, 0x6d, 0x74, 0x79, 0x7d, 0x7e, 0x7e, 0x7c, 0x78, 0x72,
-    0x6a, 0x61, 0x56, 0x4a, 0x3d, 0x2f, 0x20, 0x11, 0x00, 0x0d, 0x1a, 0x27,
-    0x33, 0x3f, 0x49, 0x53, 0x5b, 0x62, 0x67, 0x6b, 0x6d, 0x6d, 0x6c, 0x6a,
-    0x65, 0x5f, 0x58, 0x4f, 0x46, 0x3b, 0x2f, 0x22, 0x15, 0x08, 0xf9, 0xe9,
-    0xda, 0xcc, 0xbe, 0xb1, 0xa6, 0x9c, 0x93, 0x8c, 0x87, 0x83, 0x82, 0x82,
-    0x84, 0x88, 0x8e, 0x96, 0x9f, 0xaa, 0xb6, 0xc3, 0xd1, 0xe0, 0xef, 0x40,
-    0x53, 0x5e, 0x66, 0x6b, 0x6e, 0x6f, 0x71, 0x71, 0x72, 0x72, 0x72, 0x72,
-    0x72, 0x72, 0x72, 0x71, 0x70, 0x6f, 0x6d, 0x6a, 0x64, 0x5c, 0x4f, 0x39,
-    0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x08, 0x11, 0x19, 0x21, 0x28, 0x2f, 0x35, 0x3a, 0x3e, 0x41, 0x44, 0x45,
-    0x45, 0x45, 0x43, 0x40, 0x3c, 0x37, 0x32, 0x2c, 0x25, 0x1d, 0x15, 0x0d,
-    0x04, 0xfc, 0xf4, 0xec, 0xe4, 0xdc, 0xd5, 0xce, 0xc9, 0xc4, 0xc0, 0xbd,
-    0xbb, 0xbb, 0xbb, 0xbc, 0xbe, 0xc2, 0xc6, 0xcb, 0xd1, 0xd8, 0xdf, 0xe7,
-    0xef, 0xf7,
-};
 /**
  * @brief Enable/disable AW86224 power
  */
@@ -144,6 +73,15 @@ static void aw86224_hw_reset(void)
     rt_thread_mdelay(200);
 }
 
+static void aw86224_close_i2c_bus(void)
+{
+    if (g_aw86224_dev.i2c_bus != RT_NULL && g_aw86224_dev.i2c_opened)
+        rt_device_close((rt_device_t)g_aw86224_dev.i2c_bus);
+
+    g_aw86224_dev.i2c_opened = 0;
+    g_aw86224_dev.i2c_bus = RT_NULL;
+}
+
 /**
  * @brief Write single byte to AW86224 register
  */
@@ -151,10 +89,12 @@ static rt_err_t aw86224_write_reg(rt_uint8_t reg, rt_uint8_t data)
 {
     struct rt_i2c_msg msgs[2];
     rt_uint8_t buf[2];
-
     if (g_aw86224_dev.i2c_bus == RT_NULL)
         return -RT_ERROR;
 
+#ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
     buf[0] = reg;
     buf[1] = data;
 
@@ -164,9 +104,19 @@ static rt_err_t aw86224_write_reg(rt_uint8_t reg, rt_uint8_t data)
     msgs[0].len = 2;
 
     if (rt_i2c_transfer(g_aw86224_dev.i2c_bus, msgs, 1) == 1)
+    {
+#ifdef RT_USING_PM
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
         return RT_EOK;
+    }
     else
+    {
+#ifdef RT_USING_PM
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
         return -RT_ERROR;
+    }
 }
 
 /**
@@ -178,7 +128,9 @@ static rt_err_t aw86224_read_reg(rt_uint8_t reg, rt_uint8_t *data)
 
     if (g_aw86224_dev.i2c_bus == RT_NULL)
         return -RT_ERROR;
-
+#ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
     msgs[0].addr = AW86224_I2C_ADDR;
     msgs[0].flags = RT_I2C_WR;
     msgs[0].buf = &reg;
@@ -190,19 +142,30 @@ static rt_err_t aw86224_read_reg(rt_uint8_t reg, rt_uint8_t *data)
     msgs[1].len = 1;
 
     if (rt_i2c_transfer(g_aw86224_dev.i2c_bus, msgs, 2) == 2)
+    {
+#ifdef RT_USING_PM
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
         return RT_EOK;
+    }
     else
+    {
+#ifdef RT_USING_PM
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
         return -RT_ERROR;
+    }
 }
 
 /**
  * @brief Write multiple bytes to AW86224 registers
  */
-static rt_err_t aw86224_write_regs(rt_uint8_t reg, rt_uint8_t *data,
+static rt_err_t aw86224_write_regs(rt_uint8_t reg, const rt_uint8_t *data,
                                    rt_uint16_t len)
 {
-    struct rt_i2c_msg msgs[2];
+    struct rt_i2c_msg msgs[1];
     rt_uint8_t *buf;
+    rt_err_t ret;
 
     if (g_aw86224_dev.i2c_bus == RT_NULL)
         return -RT_ERROR;
@@ -214,14 +177,19 @@ static rt_err_t aw86224_write_regs(rt_uint8_t reg, rt_uint8_t *data,
     buf[0] = reg;
     rt_memcpy(buf + 1, data, len);
 
+#ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
     msgs[0].addr = AW86224_I2C_ADDR;
     msgs[0].flags = RT_I2C_WR;
     msgs[0].buf = buf;
     msgs[0].len = len + 1;
 
-    rt_err_t ret = (rt_i2c_transfer(g_aw86224_dev.i2c_bus, msgs, 1) == 1)
-                       ? RT_EOK
-                       : -RT_ERROR;
+    ret = (rt_i2c_transfer(g_aw86224_dev.i2c_bus, msgs, 1) == 1) ? RT_EOK
+                                                                 : -RT_ERROR;
+#ifdef RT_USING_PM
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
     rt_free(buf);
     return ret;
 }
@@ -253,10 +221,50 @@ static rt_err_t aw86224_soft_reset(void)
     return aw86224_write_reg(AW86224_REG_SRST, 0xAA);
 }
 
+static rt_err_t aw86224_set_clock(rt_bool_t enable)
+{
+    return aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3),
+                              enable ? (1 << 3) : 0);
+}
+
+static rt_err_t aw86224_set_play_mode(rt_uint8_t mode)
+{
+    return aw86224_write_bits(AW86224_REG_PLAYCFG3, ~0x03, mode & 0x03);
+}
+
+static rt_err_t aw86224_set_go_flag(void)
+{
+    return aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 0), (1 << 0));
+}
+
+static rt_err_t aw86224_set_stop_flag(void)
+{
+    return aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 1), (1 << 1));
+}
+
+static rt_err_t aw86224_set_auto_brake(rt_bool_t enable)
+{
+    return aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(1 << 2),
+                              enable ? (1 << 2) : 0);
+}
+
+static rt_err_t aw86224_set_gain_bypass(rt_bool_t enable)
+{
+    return aw86224_write_bits(AW86224_REG_SYSCRTL7, ~(1 << 6),
+                              enable ? (1 << 6) : 0);
+}
+
+static rt_err_t aw86224_set_force_standby(rt_bool_t enable)
+{
+    return aw86224_write_bits(AW86224_REG_SYSCRTL2, ~(1 << 6),
+                              enable ? (1 << 6) : 0);
+}
+
 /**
- * @brief Wait for device to enter standby mode
+ * @brief Wait for device to enter a specified global state
  */
-static rt_err_t aw86224_wait_standby(rt_uint32_t timeout_ms)
+static rt_err_t aw86224_wait_state(rt_uint8_t expected_state,
+                                   rt_uint32_t timeout_ms)
 {
     rt_uint8_t state;
     rt_uint32_t elapsed = 0;
@@ -268,19 +276,22 @@ static rt_err_t aw86224_wait_standby(rt_uint32_t timeout_ms)
         if (ret != RT_EOK)
             return ret;
 
-        if ((state & 0x0F) == AW86224_STATE_STANDBY)
+        if ((state & 0x0F) == expected_state)
             return RT_EOK;
 
-        rt_thread_mdelay(2);
-        elapsed += 2;
+        rt_thread_mdelay(1);
+        elapsed++;
     }
 
-    LOG_W("Wait standby timeout, force standby");
-    /* Force to standby */
-    aw86224_write_bits(AW86224_REG_SYSCRTL2, ~(1 << 6), (1 << 6));
-    aw86224_write_bits(AW86224_REG_SYSCRTL2, ~(1 << 6), (0 << 6));
-
     return -RT_ETIMEOUT;
+}
+
+/**
+ * @brief Wait for device to enter standby mode
+ */
+static rt_err_t aw86224_wait_standby(rt_uint32_t timeout_ms)
+{
+    return aw86224_wait_state(AW86224_STATE_STANDBY, timeout_ms);
 }
 
 /**
@@ -290,11 +301,24 @@ rt_err_t aw86224_stop_playback(void)
 {
     rt_err_t ret;
 
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 1), (1 << 1));
+    ret = aw86224_set_stop_flag();
     if (ret != RT_EOK)
         return ret;
 
-    return aw86224_wait_standby(200);
+    ret = aw86224_wait_standby(200);
+    if (ret == RT_EOK)
+        return RT_EOK;
+
+    LOG_W("Wait standby timeout, force standby");
+
+    ret = aw86224_set_force_standby(RT_TRUE);
+    if (ret != RT_EOK)
+        return ret;
+
+    ret = aw86224_wait_standby(100);
+    aw86224_set_force_standby(RT_FALSE);
+
+    return ret;
 }
 
 /**
@@ -328,23 +352,40 @@ static rt_bool_t aw86224_check_chipid(void)
 /**
  * @brief Initialize RAM with waveform data
  */
-static rt_err_t aw86224_ram_init(rt_uint8_t *wave_data, rt_uint16_t len)
+static rt_err_t aw86224_ram_init(const rt_uint8_t *wave_data, rt_uint16_t len)
 {
     rt_err_t ret;
+    rt_uint8_t reg_val;
 
     if (wave_data == RT_NULL || len == 0)
         return -RT_EINVAL;
 
     /* Enable digital module clock */
-    ret = aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), (1 << 3));
+    ret = aw86224_set_clock(RT_TRUE);
     if (ret != RT_EOK)
         return ret;
 
-    /* Set base address - 2KB FIFO, 1KB RAM (base_addr = 0x0800) */
-    ret = aw86224_write_reg(AW86224_REG_RTPCFG1, 0x08);
+    rt_thread_mdelay(1);
+
+    /* Same RAM layout as the AW862xx reference driver: 2KB FIFO + RAM at 0x0800. */
+    ret = aw86224_read_reg(AW86224_REG_RTPCFG1, &reg_val);
     if (ret != RT_EOK)
         goto exit;
+
+    reg_val = (reg_val & 0xF0) | 0x08;
+    ret = aw86224_write_reg(AW86224_REG_RTPCFG1, reg_val);
+    if (ret != RT_EOK)
+        goto exit;
+
     ret = aw86224_write_reg(AW86224_REG_RTPCFG2, 0x00);
+    if (ret != RT_EOK)
+        goto exit;
+
+    ret = aw86224_write_reg(AW86224_REG_RAMADDRH, 0x08);
+    if (ret != RT_EOK)
+        goto exit;
+
+    ret = aw86224_write_reg(AW86224_REG_RAMADDRL, 0x00);
     if (ret != RT_EOK)
         goto exit;
 
@@ -357,7 +398,7 @@ static rt_err_t aw86224_ram_init(rt_uint8_t *wave_data, rt_uint16_t len)
 
 exit:
     /* Disable digital module clock */
-    aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), (0 << 3));
+    aw86224_set_clock(RT_FALSE);
     return ret;
 }
 
@@ -380,7 +421,7 @@ static rt_err_t aw86224_chip_init(void)
         return ret;
 
     /* Enable gain bypass (allows gain change during playback) */
-    ret = aw86224_write_bits(AW86224_REG_SYSCRTL7, ~(1 << 6), (1 << 6));
+    ret = aw86224_set_gain_bypass(RT_TRUE);
     if (ret != RT_EOK)
         return ret;
 
@@ -414,6 +455,7 @@ rt_err_t aw86224_init()
     if (g_aw86224_dev.i2c_bus == RT_NULL)
     {
         LOG_E("I2C bus %s not found", AW86224_I2C_BUS_NAME);
+        aw86224_power_enable(RT_FALSE);
         return -RT_ERROR;
     }
 
@@ -421,8 +463,11 @@ rt_err_t aw86224_init()
                        RT_DEVICE_OFLAG_RDWR) != RT_EOK)
     {
         LOG_E("open %s device failed", AW86224_I2C_BUS_NAME);
+        g_aw86224_dev.i2c_bus = RT_NULL;
+        aw86224_power_enable(RT_FALSE);
         return -RT_ERROR;
     }
+    g_aw86224_dev.i2c_opened = 1;
 
     struct rt_i2c_configuration configuration = {
         .mode = 0,
@@ -439,6 +484,7 @@ rt_err_t aw86224_init()
     if (!aw86224_check_chipid())
     {
         LOG_E("Chip ID check failed");
+        aw86224_close_i2c_bus();
         aw86224_power_enable(RT_FALSE);
         return -RT_ERROR;
     }
@@ -448,6 +494,7 @@ rt_err_t aw86224_init()
     if (ret != RT_EOK)
     {
         LOG_E("Software reset failed");
+        aw86224_close_i2c_bus();
         aw86224_power_enable(RT_FALSE);
         return ret;
     }
@@ -458,11 +505,29 @@ rt_err_t aw86224_init()
     if (ret != RT_EOK)
     {
         LOG_E("Chip init failed");
+        aw86224_close_i2c_bus();
         aw86224_power_enable(RT_FALSE);
         return ret;
     }
 
-    aw86224_set_gain(0x80);
+    ret = aw86224_ram_init(aw862xx_haptic_ram_12k_0809_170, sizeof(aw862xx_haptic_ram_12k_0809_170));
+    if (ret != RT_EOK)
+    {
+        LOG_E("RAM waveform init failed");
+        aw86224_close_i2c_bus();
+        aw86224_power_enable(RT_FALSE);
+        return ret;
+    }
+
+    ret = aw86224_write_reg(AW86224_REG_PLAYCFG2, 0x80);
+    if (ret != RT_EOK)
+    {
+        LOG_E("Default gain init failed");
+        aw86224_close_i2c_bus();
+        aw86224_power_enable(RT_FALSE);
+        return ret;
+    }
+    _gain = 0x80;
 
     g_aw86224_dev.init_flag = 1;
     LOG_I("AW86224 initialized successfully");
@@ -478,9 +543,10 @@ rt_err_t aw86224_deinit(void)
     if (!g_aw86224_dev.init_flag)
         return RT_EOK;
 
+    aw86224_stop_playback();
+    aw86224_close_i2c_bus();
     aw86224_power_enable(RT_FALSE);
     g_aw86224_dev.init_flag = 0;
-    g_aw86224_dev.i2c_bus = RT_NULL;
 
     LOG_I("AW86224 deinitialized");
     return RT_EOK;
@@ -507,15 +573,21 @@ rt_err_t aw86224_load_waveform(rt_uint8_t *wave_data, rt_uint16_t len)
 /**
  * @brief Set playback gain
  *
- * @param gain Gain value (0-255, 128 = 100%)
+ * @param gain Gain value (0-255, 255 = 100%)
  * @return RT_EOK on success, negative error code on failure
  */
 rt_err_t aw86224_set_gain(rt_uint8_t gain)
 {
     if (!g_aw86224_dev.init_flag)
         return -RT_ERROR;
+    _gain = gain;
 
-    return aw86224_write_reg(AW86224_REG_PLAYCFG2, gain);
+    return aw86224_write_reg(AW86224_REG_PLAYCFG2, _gain);
+}
+
+uint8_t aw86224_get_gain(void)
+{
+    return _gain;
 }
 
 /**
@@ -537,8 +609,12 @@ rt_err_t aw86224_play_ram(rt_uint8_t wave_id, rt_uint8_t loop,
     if (wave_id == 0 || wave_id > 127)
         return -RT_EINVAL;
 
-    /* Stop current playback */
-    aw86224_stop_playback();
+    if (loop > 15)
+        loop = 15;
+
+    ret = aw86224_stop_playback();
+    if (ret != RT_EOK)
+        return ret;
 
     /* Configure sequence */
     ret = aw86224_write_reg(AW86224_REG_WAVCFG1, wave_id);
@@ -554,20 +630,23 @@ rt_err_t aw86224_play_ram(rt_uint8_t wave_id, rt_uint8_t loop,
     if (ret != RT_EOK)
         return ret;
 
-    /* Set play mode to RAM */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(3 << 0),
-                             (AW86224_PLAY_MODE_RAM << 0));
+    ret = aw86224_set_play_mode(AW86224_PLAY_MODE_RAM);
     if (ret != RT_EOK)
         return ret;
 
-    /* Configure auto brake */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(1 << 2),
-                             (auto_brake ? (1 << 2) : 0));
+    ret = aw86224_set_auto_brake(auto_brake);
     if (ret != RT_EOK)
         return ret;
 
-    /* Start playback */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 0), (1 << 0));
+    ret = aw86224_set_gain_bypass(RT_TRUE);
+    if (ret != RT_EOK)
+        return ret;
+
+    ret = aw86224_write_reg(AW86224_REG_PLAYCFG2, _gain);
+    if (ret != RT_EOK)
+        return ret;
+
+    ret = aw86224_set_go_flag();
     if (ret != RT_EOK)
         return ret;
 
@@ -594,27 +673,28 @@ rt_err_t aw86224_play_rtp(rt_uint8_t *data, rt_uint16_t len,
     if (data == RT_NULL || len == 0)
         return -RT_EINVAL;
 
-    /* Stop current playback */
-    aw86224_stop_playback();
-
-    /* Set play mode to RTP */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(3 << 0),
-                             (AW86224_PLAY_MODE_RTP << 0));
+    ret = aw86224_stop_playback();
     if (ret != RT_EOK)
         return ret;
 
-    /* Configure auto brake */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(1 << 2),
-                             (auto_brake ? (1 << 2) : 0));
+    ret = aw86224_set_play_mode(AW86224_PLAY_MODE_RTP);
     if (ret != RT_EOK)
         return ret;
 
-    /* Start RTP mode */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 0), (1 << 0));
+    ret = aw86224_set_auto_brake(auto_brake);
     if (ret != RT_EOK)
         return ret;
 
-    rt_thread_mdelay(1);
+    ret = aw86224_set_go_flag();
+    if (ret != RT_EOK)
+        return ret;
+
+    ret = aw86224_wait_state(AW86224_STATE_RTP, 100);
+    if (ret != RT_EOK)
+    {
+        LOG_E("RTP mode switch timeout");
+        return ret;
+    }
 
     /* Write RTP data */
     ret = aw86224_write_regs(AW86224_REG_RTPDATA, data, len);
@@ -637,23 +717,22 @@ rt_err_t aw86224_play_cont(rt_uint32_t f0_target, rt_uint32_t duration_ms,
                            rt_uint8_t strength)
 {
     rt_err_t ret;
-    rt_uint32_t f0_pre;
-    rt_uint8_t drv_width, drv2_lvl;
+    rt_int32_t drv_width;
 
     if (!g_aw86224_dev.init_flag)
         return -RT_ERROR;
 
+    if (f0_target == 0)
+        return -RT_EINVAL;
+
     if (strength > 127)
         strength = 127;
 
-    f0_pre = f0_target;
+    ret = aw86224_stop_playback();
+    if (ret != RT_EOK)
+        return ret;
 
-    /* Stop current playback */
-    aw86224_stop_playback();
-
-    /* Set play mode to CONT */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(3 << 0),
-                             (AW86224_PLAY_MODE_CONT << 0));
+    ret = aw86224_set_play_mode(AW86224_PLAY_MODE_CONT);
     if (ret != RT_EOK)
         return ret;
 
@@ -662,31 +741,33 @@ rt_err_t aw86224_play_cont(rt_uint32_t f0_target, rt_uint32_t duration_ms,
     if (ret != RT_EOK)
         return ret;
 
-    /* Disable auto brake */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(1 << 2), 0);
+    ret = aw86224_write_bits(AW86224_REG_CONTCFG6, ~(1 << 7), 0);
     if (ret != RT_EOK)
         return ret;
 
-    /* Set drive level */
-    ret = aw86224_write_reg(AW86224_REG_CONTCFG6, 0x80 | (strength & 0x7F));
+    ret = aw86224_set_auto_brake(RT_FALSE);
     if (ret != RT_EOK)
         return ret;
 
-    /* Calculate and set drive width */
-    drv_width = (240000 / f0_pre) - 8 - 8 - 15;
-    if (drv_width > 0xFF)
-        drv_width = 0xFF;
-    ret = aw86224_write_reg(AW86224_REG_CONTCFG3, drv_width);
+    ret = aw86224_write_bits(AW86224_REG_CONTCFG6, 0x80, strength & 0x7F);
     if (ret != RT_EOK)
         return ret;
 
-    /* Set drive times */
+    drv_width = (rt_int32_t)(240000 / f0_target) - 8 - 8 - 15;
+    if (drv_width < 0)
+        drv_width = 0;
+    else if (drv_width > 255)
+        drv_width = 255;
+
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG3, (rt_uint8_t)drv_width);
+    if (ret != RT_EOK)
+        return ret;
+
     ret = aw86224_write_reg(AW86224_REG_CONTCFG8, 0x04);
     if (ret != RT_EOK)
         return ret;
 
-    drv2_lvl = strength;
-    ret = aw86224_write_reg(AW86224_REG_CONTCFG7, drv2_lvl);
+    ret = aw86224_write_bits(AW86224_REG_CONTCFG7, 0x80, strength & 0x7F);
     if (ret != RT_EOK)
         return ret;
 
@@ -694,8 +775,7 @@ rt_err_t aw86224_play_cont(rt_uint32_t f0_target, rt_uint32_t duration_ms,
     if (ret != RT_EOK)
         return ret;
 
-    /* Start playback */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 0), (1 << 0));
+    ret = aw86224_set_go_flag();
     if (ret != RT_EOK)
         return ret;
 
@@ -704,7 +784,13 @@ rt_err_t aw86224_play_cont(rt_uint32_t f0_target, rt_uint32_t duration_ms,
     /* Wait for duration then stop */
     if (duration_ms > 0)
     {
+#ifdef RT_USING_PM
+        rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
         rt_thread_mdelay(duration_ms);
+#ifdef RT_USING_PM
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
         aw86224_stop_playback();
     }
 
@@ -722,6 +808,8 @@ rt_err_t aw86224_f0_detect(rt_uint32_t *f0)
     rt_err_t ret;
     rt_uint8_t reg_val;
     rt_uint32_t f0_raw;
+    rt_uint32_t f0_pre;
+    rt_int32_t drv_width;
 
     if (!g_aw86224_dev.init_flag)
         return -RT_ERROR;
@@ -729,15 +817,16 @@ rt_err_t aw86224_f0_detect(rt_uint32_t *f0)
     if (f0 == RT_NULL)
         return -RT_EINVAL;
 
-    /* Stop current playback */
-    aw86224_stop_playback();
+    ret = aw86224_stop_playback();
+    if (ret != RT_EOK)
+        return ret;
 
     /* Reset TRIM_LRA */
-    aw86224_write_reg(AW86224_REG_TRIMCFG3, 0x00);
+    ret = aw86224_write_reg(AW86224_REG_TRIMCFG3, 0x00);
+    if (ret != RT_EOK)
+        return ret;
 
-    /* Enter CONT mode with F0 detection */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(3 << 0),
-                             (AW86224_PLAY_MODE_CONT << 0));
+    ret = aw86224_set_play_mode(AW86224_PLAY_MODE_CONT);
     if (ret != RT_EOK)
         return ret;
 
@@ -755,15 +844,33 @@ rt_err_t aw86224_f0_detect(rt_uint32_t *f0)
     if (ret != RT_EOK)
         return ret;
 
-    /* Configure drive parameters */
-    aw86224_write_reg(AW86224_REG_CONTCFG6, 0xFF);
-    aw86224_write_reg(AW86224_REG_CONTCFG7, 0x7F);
-    aw86224_write_reg(AW86224_REG_CONTCFG8, 0x04);
-    aw86224_write_reg(AW86224_REG_CONTCFG9, 0x06);
-    aw86224_write_reg(AW86224_REG_CONTCFG11, 0x0F);
+    f0_pre = g_aw86224_dev.f0_calibrated ? g_aw86224_dev.f0_calibrated : 1700;
+    drv_width = (rt_int32_t)(240000 / f0_pre) - 8 - 8 - 15;
+    if (drv_width < 0)
+        drv_width = 0;
+    else if (drv_width > 255)
+        drv_width = 255;
 
-    /* Start playback */
-    ret = aw86224_write_bits(AW86224_REG_PLAYCFG4, ~(1 << 0), (1 << 0));
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG6, 0xFF);
+    if (ret != RT_EOK)
+        return ret;
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG7, 0x7F);
+    if (ret != RT_EOK)
+        return ret;
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG8, 0x04);
+    if (ret != RT_EOK)
+        return ret;
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG9, 0x06);
+    if (ret != RT_EOK)
+        return ret;
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG11, 0x0F);
+    if (ret != RT_EOK)
+        return ret;
+    ret = aw86224_write_reg(AW86224_REG_CONTCFG3, (rt_uint8_t)drv_width);
+    if (ret != RT_EOK)
+        return ret;
+
+    ret = aw86224_set_go_flag();
     if (ret != RT_EOK)
         return ret;
 
@@ -771,9 +878,13 @@ rt_err_t aw86224_f0_detect(rt_uint32_t *f0)
     rt_thread_mdelay(300);
 
     /* Read F0 value */
-    aw86224_read_reg(AW86224_REG_CONTRD14, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_CONTRD14, &reg_val);
+    if (ret != RT_EOK)
+        goto exit;
     f0_raw = reg_val << 8;
-    aw86224_read_reg(AW86224_REG_CONTRD15, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_CONTRD15, &reg_val);
+    if (ret != RT_EOK)
+        goto exit;
     f0_raw |= reg_val;
 
     if (f0_raw > 0)
@@ -783,12 +894,12 @@ rt_err_t aw86224_f0_detect(rt_uint32_t *f0)
 
     LOG_I("F0 detected: %d.%d Hz", *f0 / 10, *f0 % 10);
 
-    /* Disable F0 detection */
-    aw86224_write_bits(AW86224_REG_CONTCFG1, ~(1 << 3), (0 << 3));
-    aw86224_write_bits(AW86224_REG_PLAYCFG3, ~(1 << 2), (0 << 2));
+exit:
+    aw86224_write_bits(AW86224_REG_CONTCFG1, ~(1 << 3), 0);
+    aw86224_set_auto_brake(RT_FALSE);
     aw86224_stop_playback();
 
-    return RT_EOK;
+    return ret;
 }
 
 /**
@@ -803,9 +914,13 @@ rt_err_t aw86224_f0_calibrate(rt_uint32_t f0_pre, rt_uint32_t f0_measured)
     rt_int32_t f0_cali_step;
     rt_uint8_t f0_cali_lra;
     rt_uint32_t f0_min, f0_max;
+    rt_err_t ret;
 
     if (!g_aw86224_dev.init_flag)
         return -RT_ERROR;
+
+    if (f0_pre == 0 || f0_measured == 0)
+        return -RT_EINVAL;
 
     /* Check if measured F0 is within ±7% of expected */
     f0_min = f0_pre * 93 / 100;
@@ -824,14 +939,14 @@ rt_err_t aw86224_f0_calibrate(rt_uint32_t f0_pre, rt_uint32_t f0_measured)
 
     if (f0_cali_step >= 0)
     {
-        if (f0_cali_step >= 5)
+        if ((f0_cali_step % 10) >= 5)
             f0_cali_step = 32 + (f0_cali_step / 10 + 1);
         else
             f0_cali_step = 32 + f0_cali_step / 10;
     }
     else
     {
-        if (f0_cali_step <= -5)
+        if ((f0_cali_step % 10) <= -5)
             f0_cali_step = 32 + (f0_cali_step / 10 - 1);
         else
             f0_cali_step = 32 + f0_cali_step / 10;
@@ -845,7 +960,9 @@ rt_err_t aw86224_f0_calibrate(rt_uint32_t f0_pre, rt_uint32_t f0_measured)
     LOG_I("F0 calibration value: 0x%02X", f0_cali_lra & 0x3F);
 
     /* Write calibration value to chip */
-    aw86224_write_reg(AW86224_REG_TRIMCFG3, f0_cali_lra & 0x3F);
+    ret = aw86224_write_reg(AW86224_REG_TRIMCFG3, f0_cali_lra & 0x3F);
+    if (ret != RT_EOK)
+        return ret;
 
     g_aw86224_dev.f0_calibrated = f0_measured;
 
@@ -871,17 +988,19 @@ rt_err_t aw86224_measure_resistance(rt_uint32_t *resistance)
         return -RT_EINVAL;
 
     /* Save current D2S_GAIN */
-    aw86224_read_reg(AW86224_REG_SYSCRTL7, &d2s_gain_pre);
+    ret = aw86224_read_reg(AW86224_REG_SYSCRTL7, &d2s_gain_pre);
+    if (ret != RT_EOK)
+        return ret;
     d2s_gain_pre &= 0x07;
 
     /* Set appropriate D2S_GAIN */
-    d2s_gain = 10; /* For RL 31-60Ω, use D2S_GAIN=10 */
+    d2s_gain = 5; /* AW862xx D2S_GAIN enum value for 10x */
     ret = aw86224_write_bits(AW86224_REG_SYSCRTL7, ~(0x07), d2s_gain);
     if (ret != RT_EOK)
         return ret;
 
     /* Enable RAM clock */
-    ret = aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), (1 << 3));
+    ret = aw86224_set_clock(RT_TRUE);
     if (ret != RT_EOK)
         goto restore;
 
@@ -898,20 +1017,24 @@ rt_err_t aw86224_measure_resistance(rt_uint32_t *resistance)
     rt_thread_mdelay(3);
 
     /* Read result */
-    aw86224_read_reg(AW86224_REG_DET_RL, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_DET_RL, &reg_val);
+    if (ret != RT_EOK)
+        goto restore;
     rl_raw = reg_val << 2;
-    aw86224_read_reg(AW86224_REG_DET_LO, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_DET_LO, &reg_val);
+    if (ret != RT_EOK)
+        goto restore;
     rl_raw |= (reg_val & 0x03);
 
     /* Calculate resistance: RL = (rl_raw * 678) / (1024 * d2s_gain) Ω */
-    *resistance = (rl_raw * 678) / (1024 * d2s_gain);
+    *resistance = (rl_raw * 678) / (1024 * 10);
 
     LOG_I("LRA resistance: %d mΩ", *resistance);
 
 restore:
     /* Restore settings */
     aw86224_write_bits(AW86224_REG_DETCFG1, ~(1 << 4), 0);
-    aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), 0);
+    aw86224_set_clock(RT_FALSE);
     aw86224_write_bits(AW86224_REG_SYSCRTL7, ~(0x07), d2s_gain_pre & 0x07);
 
     return ret;
@@ -936,7 +1059,7 @@ rt_err_t aw86224_measure_vbat(rt_uint32_t *voltage)
         return -RT_EINVAL;
 
     /* Enable RAM clock */
-    ret = aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), (1 << 3));
+    ret = aw86224_set_clock(RT_TRUE);
     if (ret != RT_EOK)
         return ret;
 
@@ -948,9 +1071,13 @@ rt_err_t aw86224_measure_vbat(rt_uint32_t *voltage)
     rt_thread_mdelay(3);
 
     /* Read result */
-    aw86224_read_reg(AW86224_REG_DET_VBAT, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_DET_VBAT, &reg_val);
+    if (ret != RT_EOK)
+        goto exit;
     vbat_raw = reg_val << 2;
-    aw86224_read_reg(AW86224_REG_DET_LO, &reg_val);
+    ret = aw86224_read_reg(AW86224_REG_DET_LO, &reg_val);
+    if (ret != RT_EOK)
+        goto exit;
     vbat_raw |= ((reg_val >> 4) & 0x03);
 
     /* Calculate voltage: VDD = (vbat_raw * 6.1) / 1024 V */
@@ -959,7 +1086,7 @@ rt_err_t aw86224_measure_vbat(rt_uint32_t *voltage)
     LOG_I("VBAT: %d mV", *voltage);
 
 exit:
-    aw86224_write_bits(AW86224_REG_SYSCRTL1, ~(1 << 3), 0);
+    aw86224_set_clock(RT_FALSE);
     return ret;
 }
 
@@ -987,7 +1114,7 @@ rt_uint8_t aw86224_get_state(void)
 rt_bool_t aw86224_is_playing(void)
 {
     if (!g_aw86224_dev.init_flag)
-        return -RT_ERROR;
+        return RT_FALSE;
 
     rt_uint8_t state = aw86224_get_state();
     return (state != AW86224_STATE_STANDBY);
@@ -1056,7 +1183,7 @@ static void aw86224_test(rt_int32_t argc, char **argv)
     if (argc < 2)
     {
         rt_kprintf("Usage:\n");
-        rt_kprintf("  aw86224_test init <i2c_bus>  - Initialize AW86224\n");
+        rt_kprintf("  aw86224_test init            - Initialize AW86224\n");
         rt_kprintf("  aw86224_test deinit          - Deinitialize AW86224\n");
         rt_kprintf("  aw86224_test ram <id> <loop> - Play RAM waveform\n");
         rt_kprintf("  aw86224_test cont <ms>       - Play CONT mode\n");
@@ -1070,12 +1197,7 @@ static void aw86224_test(rt_int32_t argc, char **argv)
 
     if (rt_strcmp(argv[1], "init") == 0)
     {
-        if (argc < 3)
-        {
-            rt_kprintf("Please specify I2C bus name\n");
-            return;
-        }
-        ret = aw86224_init(argv[2]);
+        ret = aw86224_init();
         if (ret == RT_EOK)
             rt_kprintf("AW86224 initialized\n");
         else

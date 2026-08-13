@@ -6,7 +6,7 @@
 /*  行缓冲区 (ISR 回调 -> 主处理线程)                                   */
 /* ================================================================== */
 #define RX_LINE_BUF_SIZE 256
-#define LINE_QUEUE_SIZE  16
+#define LINE_QUEUE_SIZE 16
 
 static char rx_line_buf[RX_LINE_BUF_SIZE];
 static uint16_t rx_line_idx = 0;
@@ -20,7 +20,8 @@ static int line_queue_rd = 0;
 /* ================================================================== */
 #define CMD_QUEUE_SIZE 16
 
-typedef struct {
+typedef struct
+{
     char data[256];
     uint16_t len;
     int resp_id;
@@ -36,7 +37,7 @@ static int current_resp_id = -1;
 static char current_resp[256];
 static uint16_t current_resp_len = 0;
 
-static rt_sem_t at_sem;                /* 统一信号量：新行/新命令 */
+static rt_sem_t at_sem; /* 统一信号量：新行/新命令 */
 static at_response_callback_t user_callback = NULL;
 
 /* ================================================================== */
@@ -114,12 +115,15 @@ static void process_response_line(const char *line)
         int terminal = check_response_terminal(line);
         if (terminal >= 0)
         {
-            AT_LOG("CMD complete, ID: %d, result: %d\n%s\n",
-                   current_resp_id, terminal, current_resp);
+            AT_LOG("CMD complete, ID: %d, result: %d\n%s\n", current_resp_id,
+                   terminal, current_resp);
 
             if (user_callback)
                 user_callback(current_resp_id, current_resp, terminal);
-
+                
+#ifdef RT_USING_PM
+            rt_pm_release(PM_SLEEP_MODE_IDLE); // 新增：命令完成，允许深度睡眠
+#endif
             /* 清除当前命令状态 */
             current_resp_id = -1;
             current_resp_len = 0;
@@ -188,7 +192,9 @@ static void at_main_thread(void *parameter)
             current_resp_id = entry->resp_id;
             current_resp_len = 0;
             current_resp[0] = '\0';
-
+#ifdef RT_USING_PM
+            rt_pm_request(PM_SLEEP_MODE_IDLE); // 新增：阻止进入高于 IDLE 的睡眠
+#endif
             AT_LOG("Send ID:%d -> %s", entry->resp_id, entry->data);
             uart_mux_send((const uint8_t *)entry->data, entry->len);
         }
@@ -271,8 +277,9 @@ rt_err_t esp32_at_send(const uint8_t *data, size_t len, int resp_id)
     }
 
     cmd_entry_t *entry = &cmd_queue[cmd_queue_wr];
-    uint16_t copy_len = (len < sizeof(entry->data)) ? (uint16_t)len
-                                                    : (uint16_t)sizeof(entry->data);
+    uint16_t copy_len = (len < sizeof(entry->data))
+                            ? (uint16_t)len
+                            : (uint16_t)sizeof(entry->data);
     memcpy(entry->data, data, copy_len);
     entry->len = copy_len;
     entry->resp_id = resp_id;

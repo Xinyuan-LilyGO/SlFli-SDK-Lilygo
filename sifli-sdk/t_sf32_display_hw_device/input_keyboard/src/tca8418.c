@@ -11,15 +11,30 @@
 #include "tca8418.h"
 #include "rtconfig.h"
 #include "rthw.h"
-// #include "ui.h"
 #include "ulog.h"
 #include <string.h>
+#include "xl9555.h"
 
 static struct rt_i2c_bus_device *tca8418_i2c_bus = NULL;
 static rt_sem_t key_sem;
 static rt_mq_t key_mq = NULL;
 
+static inline rt_err_t TCA8418_KPConfig(void);
+static inline rt_err_t TCA8418_EnableInterrupt(void);
+static void tca8418_int_isr(void *args);
+
+#define TCA8418_KEY_EVENT_MAX       10
+#define TCA8418_EVENT_COUNT_MASK    0x0F
+
 #ifdef PKG_USING_PKG_KEY_BOARD
+
+static void TCA8418_reset(void)
+{
+    xl9555_pin_mode(XL9555_KEY_RST_PIN, XL9555_PIN_OUTPUT);
+    xl9555_digital_write(XL9555_KEY_RST_PIN, 0);
+    rt_thread_mdelay(10);
+    xl9555_digital_write(XL9555_KEY_RST_PIN, 1);
+}
 
 /**
  * @brief Read data from TCA8418 register(s)
@@ -69,6 +84,61 @@ static inline rt_err_t TCA8418_WriteRegister(uint8_t reg, uint8_t *data,
     }
     return RT_EOK;
 }
+
+    #ifdef RT_USING_PM
+static rt_err_t tca8418_deinit(void)
+{
+    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_DISABLE);
+    if (tca8418_i2c_bus != RT_NULL)
+    {
+        rt_device_close((rt_device_t)tca8418_i2c_bus);
+        tca8418_i2c_bus = RT_NULL;
+    }
+    return RT_EOK;
+}
+
+static int tca8418_pm_suspend(const struct rt_device *device, uint8_t mode)
+{
+    tca8418_deinit(); // 关中断 + 关 I2C
+    return 0;
+}
+
+static void tca8418_pm_resume(const struct rt_device *device, uint8_t mode)
+{
+    // 重新打开 I2C
+    tca8418_i2c_bus = rt_i2c_bus_device_find(KEY_BOARD_I2C_BUS_NAME);
+    if (tca8418_i2c_bus != RT_NULL)
+    {
+        rt_device_open((rt_device_t)tca8418_i2c_bus, RT_DEVICE_OFLAG_RDWR);
+
+        struct rt_i2c_configuration cfg = {
+            .mode = 0,
+            .addr = 0,
+            .timeout = 500,
+            .max_hz = 400000,
+        };
+        rt_i2c_configure(tca8418_i2c_bus, &cfg);
+    }
+
+    // 重新配置按键矩阵和中断使能（芯片掉电后寄存器丢失）
+    TCA8418_KPConfig();
+    TCA8418_EnableInterrupt();
+
+    // 清除残留中断 + 重新配置 GPIO 中断引脚
+    uint8_t clr = 0x01;
+    TCA8418_WriteRegister(INT_STAT, &clr, 1);
+
+    rt_pin_mode(KEY_BOARD_IRQ_PIN, PIN_MODE_INPUT_PULLUP);
+    rt_pin_attach_irq(KEY_BOARD_IRQ_PIN, PIN_IRQ_MODE_FALLING, tca8418_int_isr,
+                      RT_NULL);
+    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
+}
+
+static const struct rt_device_pm_ops tca8418_pm_op = {
+    .suspend = tca8418_pm_suspend,
+    .resume = tca8418_pm_resume,
+};
+    #endif
 
 static void tca8418_int_isr(void *args)
 {
@@ -164,13 +234,11 @@ static inline rt_err_t TCA8418_EnableInterrupt(void)
 
 static void key_scan_work(void)
 {
-    uint8_t keyEvents[10]; // Array to store up to 10 events
+    uint8_t keyEvents[TCA8418_KEY_EVENT_MAX]; // Array to store key events
     uint8_t numEvents;     // Number of events actually read
 
-    // Read all pending key events
-    rt_err_t status = TCA8418_ReadKeyEvents(keyEvents, &numEvents);
-
-    if (status == RT_EOK)
+    while (TCA8418_ReadKeyEvents(keyEvents, &numEvents) == RT_EOK &&
+           numEvents > 0)
     {
         // Process each event
         for (int i = 0; i < numEvents; i++)
@@ -185,7 +253,13 @@ static void key_scan_work(void)
                 keyEvent.code = keyNumber;
                 keyEvent.is_long_press = false;
 
-                rt_mq_send(key_mq, &keyEvent, sizeof(keyEvent));
+                if (rt_mq_send(key_mq, &keyEvent, sizeof(keyEvent)) != RT_EOK)
+                {
+                    key_board_event_msg_t dropEvent;
+                    rt_mq_recv(key_mq, &dropEvent, sizeof(dropEvent),
+                               RT_WAITING_NO);
+                    rt_mq_send(key_mq, &keyEvent, sizeof(keyEvent));
+                }
             }
         }
     }
@@ -198,7 +272,13 @@ static void key_thread_entry(void *param)
     {
         if (rt_sem_take(key_sem, RT_WAITING_FOREVER) == RT_EOK)
         {
+    #ifdef RT_USING_PM
+            rt_pm_request(PM_SLEEP_MODE_IDLE);
             key_scan_work();
+            rt_pm_release(PM_SLEEP_MODE_IDLE);
+    #else
+            key_scan_work();
+    #endif
         }
     }
 }
@@ -209,11 +289,11 @@ static void key_thread_entry(void *param)
 rt_err_t key_board_tca8418_init(void)
 {
     int ret;
-    rt_uint32_t ts = 0;
-    uint8_t rst = 1;
+    TCA8418_reset();
     key_sem = rt_sem_create("key_sem", 0, RT_IPC_FLAG_FIFO);
 
-    key_mq = rt_mq_create("key_mq", sizeof(key_board_event_msg_t), 10, RT_IPC_FLAG_FIFO);
+    key_mq = rt_mq_create("key_mq", sizeof(key_board_event_msg_t), 10,
+                          RT_IPC_FLAG_FIFO);
     if (key_mq == RT_NULL)
     {
         LOG_E("Create message queue failed");
@@ -264,7 +344,7 @@ rt_err_t key_board_tca8418_init(void)
         log_e("TCA8418_EnableInterrupt failed");
         return -RT_ERROR;
     }
-    
+
     uint8_t dummy, count;
     TCA8418_ReadRegister(KEY_LCK_EC, &count, 1);
     for (uint8_t i = 0; i < count && i < 10; i++)
@@ -278,10 +358,13 @@ rt_err_t key_board_tca8418_init(void)
                       RT_NULL);
     rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
 
-    rt_thread_t tid =
-        rt_thread_create("key", key_thread_entry, RT_NULL, 1024, RT_THREAD_PRIORITY_HIGH, 10);
+    rt_thread_t tid = rt_thread_create("key", key_thread_entry, RT_NULL, 1024,
+                                       RT_THREAD_PRIORITY_HIGH, 10);
     rt_thread_startup(tid);
 
+    #ifdef RT_USING_PM
+    rt_pm_device_register(NULL, &tca8418_pm_op);
+    #endif
     return RT_EOK;
 }
 
@@ -326,10 +409,11 @@ rt_err_t TCA8418_ReadKeyEvents(uint8_t *keyEvents, uint8_t *numEvents)
     {
         return -RT_ERROR;
     }
-    /* Limit to maximum 10 events */
-    if (eventCount > 10)
+    eventCount &= TCA8418_EVENT_COUNT_MASK;
+    /* Limit to maximum events that fit into caller buffer */
+    if (eventCount > TCA8418_KEY_EVENT_MAX)
     {
-        eventCount = 10;
+        eventCount = TCA8418_KEY_EVENT_MAX;
     }
     /* Read all events from FIFO */
     for (uint8_t i = 0; i < eventCount; i++)

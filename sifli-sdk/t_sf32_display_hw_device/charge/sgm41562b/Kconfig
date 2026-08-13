@@ -10,5 +10,5 @@ config PKG_USING_SGM41562B
 
         config SGM41562B_IRQ_PIN
             int "SGM41562B IRQ pin number"
-            default 42
+            default -1
     endif

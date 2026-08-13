@@ -180,6 +180,20 @@ rt_err_t esp32_at_cipsta(int resp_id, const char *ip, const char *gateway,
     return RT_EOK;
 }
 
+rt_err_t esp32_at_cwreconncfg(int resp_id, int intreval_s,
+                              uint32_t connect_count)
+{
+    char cmd[128];
+    rt_snprintf(cmd, sizeof(cmd), "AT+CWRECONNCFG=%d,%d\r\n", intreval_s,
+                connect_count);
+    if (esp32_at_send((const uint8_t *)cmd, strlen(cmd), resp_id) != RT_EOK)
+    {
+        AT_LOG("Failed to send AT+CWRECONNCFG\n");
+        return -RT_ERROR;
+    }
+    return RT_EOK;
+}
+
 /* ================================================================ */
 /*  TCP/IP                                                           */
 /* ================================================================ */

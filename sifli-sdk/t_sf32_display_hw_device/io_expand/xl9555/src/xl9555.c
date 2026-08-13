@@ -4,8 +4,12 @@
  */
 #include "xl9555.h"
 #include "ulog.h"
-
+#ifdef RT_USING_PM
+    #include <drivers/pm.h>
+#endif
 static struct xl9555_device xl9555_dev;
+
+static rt_err_t xl9555_restore(void);
 
 /* 内部函数：向指定寄存器写入 16 位数据 */
 static rt_err_t xl9555_write_reg(struct xl9555_device *dev, rt_uint8_t reg,
@@ -59,6 +63,46 @@ static rt_err_t xl9555_read_reg(struct xl9555_device *dev, rt_uint8_t reg,
     }
 }
 
+#ifdef RT_USING_PM
+
+static int xl9555_pm_suspend(const struct rt_device *device, uint8_t mode)
+{
+    // xl9555 由系统电源域供电时寄存器状态保留，无需额外操作
+    // 如果由可关闭的电源域供电，则在此关闭
+    return 0;
+}
+
+static void xl9555_pm_resume(const struct rt_device *device, uint8_t mode)
+{
+    // 深度睡眠后 I2C 可能需要重新打开和配置
+    if (xl9555_dev.i2c_bus == RT_NULL)
+    {
+        xl9555_dev.i2c_bus = rt_i2c_bus_device_find(XL9555_I2C_BUS_NAME);
+    }
+    if (xl9555_dev.i2c_bus != RT_NULL)
+    {
+        rt_device_open((rt_device_t)xl9555_dev.i2c_bus, RT_DEVICE_OFLAG_RDWR);
+
+        struct rt_i2c_configuration configuration = {
+            .mode = 0,
+            .addr = 0,
+            .timeout = 500,
+            .max_hz = 400000,
+        };
+        rt_i2c_configure(xl9555_dev.i2c_bus, &configuration);
+
+        // 恢复所有寄存器（cache 中保存的是断电前的正确状态）
+        xl9555_restore();
+    }
+}
+
+static const struct rt_device_pm_ops xl9555_pm_op = {
+    .suspend = xl9555_pm_suspend,
+    .resume = xl9555_pm_resume,
+};
+
+#endif
+
 /* -------------------- 用户 API 接口 -------------------- */
 rt_err_t xl9555_init()
 {
@@ -71,7 +115,8 @@ rt_err_t xl9555_init()
         return -RT_ERROR;
     }
 
-    if (rt_device_open((rt_device_t)xl9555_dev.i2c_bus, RT_DEVICE_OFLAG_RDWR) != RT_EOK)
+    if (rt_device_open((rt_device_t)xl9555_dev.i2c_bus, RT_DEVICE_OFLAG_RDWR) !=
+        RT_EOK)
     {
         LOG_E("open %s device failed", XL9555_I2C_BUS_NAME);
         return -RT_ERROR;
@@ -87,8 +132,8 @@ rt_err_t xl9555_init()
     rt_i2c_configure(xl9555_dev.i2c_bus, &configuration);
 
     /* 初始化缓存：默认所有引脚为输入模式，上电后默认值即为全1 */
-    xl9555_dev.config_cache = 0xFFFF;
-    xl9555_dev.output_cache = 0xFFFF;
+    xl9555_dev.config_cache = 0x0000;
+    xl9555_dev.output_cache = 0x0000;
 
     xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
     xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
@@ -96,7 +141,27 @@ rt_err_t xl9555_init()
     xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_1, xl9555_dev.config_cache);
     xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_1,
                      xl9555_dev.output_cache);
+#ifdef RT_USING_PM
+    rt_pm_device_register(NULL, &xl9555_pm_op);
+#endif
+    return RT_EOK;
+}
 
+rt_err_t xl9555_deinit(void)
+{
+    if (xl9555_dev.i2c_bus != RT_NULL)
+    {
+        rt_device_close((rt_device_t)xl9555_dev.i2c_bus);
+        xl9555_dev.i2c_bus = RT_NULL;
+    }
+    return RT_EOK;
+}
+
+static rt_err_t xl9555_restore(void)
+{
+    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
+    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
+                     xl9555_dev.output_cache);
     return RT_EOK;
 }
 
@@ -126,9 +191,14 @@ void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val)
         xl9555_dev.output_cache |= mask;
     else
         xl9555_dev.output_cache &= ~mask;
-
+#ifdef RT_USING_PM
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
+#endif
     xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
                      xl9555_dev.output_cache);
+#ifdef RT_USING_PM
+    rt_pm_release(PM_SLEEP_MODE_IDLE);
+#endif
 }
 
 /* 读取数字值 (pin: 0-15) */
@@ -144,10 +214,26 @@ rt_uint8_t xl9555_digital_read(rt_uint8_t pin)
     return 0;
 }
 
+rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val)
+{
+    if (val)
+    {
+        xl9555_dev.config_cache = 0xFFFF;
+        xl9555_dev.output_cache = 0xFFFF;
+    }
+    else
+    {
+        xl9555_dev.config_cache = 0x0000;
+        xl9555_dev.output_cache = 0x0000;
+    }
 
-
-
-
+    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
+    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
+                     xl9555_dev.output_cache);
+    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_1, xl9555_dev.config_cache);
+    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_1,
+                     xl9555_dev.output_cache);
+}
 
 /* 测试示例：在 msh shell 中调用 */
 static void xl9555_test(void)

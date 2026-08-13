@@ -39,8 +39,10 @@ struct xl9555_device
 };
 
 rt_err_t xl9555_init();
+rt_err_t xl9555_deinit(void);   // 新增
 void xl9555_pin_mode(rt_uint8_t pin, rt_uint8_t mode);
 void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val);
 rt_uint8_t xl9555_digital_read(rt_uint8_t pin);
+rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val);
 
 #endif /* __XL9555_H__ */

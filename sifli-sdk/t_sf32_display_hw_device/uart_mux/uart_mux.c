@@ -10,30 +10,29 @@
     #define MUX_LOG(...)
 #endif
 
-/* 串口设备 */
 static char mux_uart_name[RT_NAME_MAX];
 static rt_device_t mux_serial = RT_NULL;
 static struct serial_configure mux_config = RT_SERIAL_CONFIG_DEFAULT;
-
-/* 当前激活设备 */
 static uart_mux_device_t current_device = UART_MUX_DEVICE_NONE;
 
-/* 接收线程 */
 static rt_thread_t rx_thread = RT_NULL;
-#define RX_THREAD_STACK_SIZE 1024
+#define RX_THREAD_STACK_SIZE 2048
 #define RX_THREAD_PRIORITY RT_THREAD_PRIORITY_MIDDLE
+#define RX_BUF_SIZE 256
+#define UART_RX_BUFSZ 2048
 
-/* 接收回调表 */
-static uart_mux_rx_callback rx_callbacks[3] = {RT_NULL}; /* 索引对应 enum */
+static uart_mux_rx_callback rx_callbacks[3] = {RT_NULL};
 
-/* 互斥锁保护切换和发送 */
 static struct rt_mutex mux_mutex;
+static struct rt_semaphore mux_rx_sem;
+static rt_bool_t rx_thread_running = RT_FALSE;
 
-/* 事件集用于通知接收线程退出 */
-static struct rt_event mux_event;
-#define EVENT_STOP_RX (1 << 0)
+static rt_err_t uart_mux_rx_indicate(rt_device_t dev, rt_size_t size)
+{
+    rt_sem_release(&mux_rx_sem);
+    return RT_EOK;
+}
 
-/* 硬件 GPIO 切换 */
 static void mux_hw_select(uart_mux_device_t dev)
 {
     xl9555_pin_mode(XL9555_GPS_ESP32C6_SEL_PIN, XL9555_PIN_OUTPUT);
@@ -50,18 +49,17 @@ static void mux_hw_select(uart_mux_device_t dev)
     rt_thread_mdelay(100);
 }
 
-/* 关闭串口 */
 static void mux_close_uart(void)
 {
     if (mux_serial != RT_NULL)
     {
+        rt_device_set_rx_indicate(mux_serial, RT_NULL);
         rt_device_close(mux_serial);
         mux_serial = RT_NULL;
         MUX_LOG("UART closed\n");
     }
 }
 
-/* 以指定波特率打开串口 */
 static int mux_open_uart(uint32_t baudrate)
 {
     rt_err_t ret;
@@ -77,14 +75,29 @@ static int mux_open_uart(uint32_t baudrate)
     mux_config.data_bits = DATA_BITS_8;
     mux_config.stop_bits = STOP_BITS_1;
     mux_config.parity = PARITY_NONE;
-    mux_config.bufsz = 512;
-    rt_device_control(mux_serial, RT_DEVICE_CTRL_CONFIG, &mux_config);
+    mux_config.bufsz = UART_RX_BUFSZ;
 
-    ret = rt_device_open(mux_serial,
-                         RT_DEVICE_OFLAG_RDWR | RT_DEVICE_FLAG_INT_RX);
+    ret = rt_device_control(mux_serial, RT_DEVICE_CTRL_CONFIG, &mux_config);
     if (ret != RT_EOK)
     {
-        MUX_LOG("Open UART at %lu failed\n", baudrate);
+        MUX_LOG("Config UART at %lu failed: %d\n", baudrate, ret);
+        mux_serial = RT_NULL;
+        return ret;
+    }
+
+    ret = rt_device_open(mux_serial, RT_DEVICE_OFLAG_RDWR | RT_DEVICE_FLAG_INT_RX);
+    if (ret != RT_EOK)
+    {
+        MUX_LOG("Open UART at %lu failed: %d\n", baudrate, ret);
+        mux_serial = RT_NULL;
+        return ret;
+    }
+
+    ret = rt_device_set_rx_indicate(mux_serial, uart_mux_rx_indicate);
+    if (ret != RT_EOK)
+    {
+        MUX_LOG("Set RX indicate failed: %d\n", ret);
+        rt_device_close(mux_serial);
         mux_serial = RT_NULL;
         return ret;
     }
@@ -93,50 +106,48 @@ static int mux_open_uart(uint32_t baudrate)
     return RT_EOK;
 }
 
-/* 接收线程入口：不断读取串口数据并调用当前设备回调 */
 static void uart_mux_rx_thread_entry(void *param)
 {
-    uint8_t ch;
+    uint8_t buf[RX_BUF_SIZE];
     rt_size_t len;
-    rt_uint32_t e;
 
-    while (1)
+    (void)param;
+
+    while (rx_thread_running)
     {
-        /* 如果没有激活设备或串口未打开，跳过 */
-        rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
-        rt_device_t ser = mux_serial;
-        uart_mux_device_t dev = current_device;
-        rt_mutex_release(&mux_mutex);
-
-        if (ser == RT_NULL || dev == UART_MUX_DEVICE_NONE)
-        {
-            rt_thread_mdelay(20);
+        if (rt_sem_take(&mux_rx_sem, RT_WAITING_FOREVER) != RT_EOK)
             continue;
-        }
 
-        /* 读取一个字节（阻塞超时短，避免卡死） */
-        len = rt_device_read(ser, 0, &ch, 1);
-        if (len == 1)
+        while (rx_thread_running)
         {
-            /* 调用对应设备的回调 */
-            uart_mux_rx_callback cb = rx_callbacks[dev];
+            uart_mux_rx_callback cb;
+            rt_size_t i;
+
+            rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
+            if (mux_serial == RT_NULL || current_device == UART_MUX_DEVICE_NONE)
+            {
+                rt_mutex_release(&mux_mutex);
+                break;
+            }
+
+            len = rt_device_read(mux_serial, 0, buf, sizeof(buf));
+            cb = rx_callbacks[current_device];
+            rt_mutex_release(&mux_mutex);
+
+            if (len == 0)
+                break;
+
             if (cb != RT_NULL)
             {
-                cb(ch);
+                for (i = 0; i < len; i++)
+                    cb(buf[i]);
             }
-        }
-        else
-        {
-            rt_thread_mdelay(10);
         }
     }
 
+    rx_thread = RT_NULL;
     MUX_LOG("RX thread exit\n");
 }
-
-/*----------------------------------------------------------------------------*/
-/* 对外 API                                                                   */
-/*----------------------------------------------------------------------------*/
 
 int uart_mux_init(const char *uart_name)
 {
@@ -144,19 +155,22 @@ int uart_mux_init(const char *uart_name)
         return -RT_EINVAL;
 
     rt_strncpy(mux_uart_name, uart_name, RT_NAME_MAX - 1);
-    rt_mutex_init(&mux_mutex, "mux_mtx", RT_IPC_FLAG_PRIO);
-    rt_event_init(&mux_event, "mux_evt", RT_IPC_FLAG_PRIO);
+    mux_uart_name[RT_NAME_MAX - 1] = '\0';
 
-    /* 创建接收线程 */
-    rx_thread =
-        rt_thread_create("uart_mux_rx", uart_mux_rx_thread_entry, RT_NULL,
-                         RX_THREAD_STACK_SIZE, RX_THREAD_PRIORITY, 10);
+    rt_mutex_init(&mux_mutex, "mux_mtx", RT_IPC_FLAG_PRIO);
+    rt_sem_init(&mux_rx_sem, "mux_rx", 0, RT_IPC_FLAG_PRIO);
+
+    rx_thread_running = RT_TRUE;
+    rx_thread = rt_thread_create("uart_mux_rx", uart_mux_rx_thread_entry, RT_NULL,
+                                 RX_THREAD_STACK_SIZE, RX_THREAD_PRIORITY, 10);
     if (rx_thread == RT_NULL)
     {
+        rx_thread_running = RT_FALSE;
+        rt_sem_detach(&mux_rx_sem);
         rt_mutex_detach(&mux_mutex);
-        rt_event_detach(&mux_event);
         return -RT_ERROR;
     }
+
     rt_thread_startup(rx_thread);
 
     MUX_LOG("Initialized for %s\n", uart_name);
@@ -172,7 +186,6 @@ int uart_mux_switch_to(uart_mux_device_t dev, uint32_t baudrate)
 
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
 
-    /* 如果已经激活目标设备且波特率相同，则无需操作 */
     if (current_device == dev && mux_serial != RT_NULL &&
         mux_config.baud_rate == baudrate)
     {
@@ -183,13 +196,9 @@ int uart_mux_switch_to(uart_mux_device_t dev, uint32_t baudrate)
 
     MUX_LOG("Switching to device %d, baudrate %lu\n", dev, baudrate);
 
-    /* 1. 关闭当前串口 */
     mux_close_uart();
-
-    /* 2. 切换硬件 GPIO */
     mux_hw_select(dev);
 
-    /* 3. 以新波特率打开串口 */
     ret = mux_open_uart(baudrate);
     if (ret != RT_EOK)
     {
@@ -198,7 +207,6 @@ int uart_mux_switch_to(uart_mux_device_t dev, uint32_t baudrate)
         return ret;
     }
 
-    /* 4. 更新当前设备 */
     current_device = dev;
 
     rt_mutex_release(&mux_mutex);
@@ -222,21 +230,19 @@ int uart_mux_register_rx_callback(uart_mux_device_t dev,
 
 int uart_mux_send(const uint8_t *data, size_t len)
 {
-    rt_device_t ser;
     rt_size_t sent;
 
     if (data == RT_NULL || len == 0)
         return -RT_ERROR;
 
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
-    ser = mux_serial;
-    if (ser == RT_NULL || current_device == UART_MUX_DEVICE_NONE)
+    if (mux_serial == RT_NULL || current_device == UART_MUX_DEVICE_NONE)
     {
         rt_mutex_release(&mux_mutex);
         return -RT_ERROR;
     }
 
-    sent = rt_device_write(ser, 0, data, len);
+    sent = rt_device_write(mux_serial, 0, data, len);
     rt_mutex_release(&mux_mutex);
 
     if (sent != len)
@@ -248,21 +254,19 @@ int uart_mux_send(const uint8_t *data, size_t len)
 uart_mux_device_t uart_mux_get_current_device(void)
 {
     uart_mux_device_t dev;
+
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
     dev = current_device;
     rt_mutex_release(&mux_mutex);
+
     return dev;
 }
 
 void uart_mux_deinit(void)
 {
-    /* 通知接收线程停止 */
-    rt_event_send(&mux_event, EVENT_STOP_RX);
-    if (rx_thread != RT_NULL)
-    {
-        rt_thread_delete(rx_thread);
-        rx_thread = RT_NULL;
-    }
+    int i;
+
+    rx_thread_running = RT_FALSE;
 
     rt_mutex_take(&mux_mutex, RT_WAITING_FOREVER);
     mux_close_uart();
@@ -270,13 +274,26 @@ void uart_mux_deinit(void)
     memset(rx_callbacks, 0, sizeof(rx_callbacks));
     rt_mutex_release(&mux_mutex);
 
+    rt_sem_release(&mux_rx_sem);
+
+    for (i = 0; i < 10 && rx_thread != RT_NULL; i++)
+        rt_thread_mdelay(10);
+
+    if (rx_thread != RT_NULL)
+    {
+        rt_thread_delete(rx_thread);
+        rx_thread = RT_NULL;
+    }
+
+    rt_sem_detach(&mux_rx_sem);
     rt_mutex_detach(&mux_mutex);
-    rt_event_detach(&mux_event);
     MUX_LOG("Deinitialized\n");
 }
 
 static void uart_test(int argc, char **argv)
 {
+    int ret;
+
     if (argc < 2)
     {
         rt_kprintf("Usage: uart_test <string>\n");
@@ -284,31 +301,17 @@ static void uart_test(int argc, char **argv)
         return;
     }
 
-    /* 检查当前是否有激活的设备 */
-    uart_mux_device_t current_dev = uart_mux_get_current_device();
-    if (current_dev == UART_MUX_DEVICE_NONE)
+    if (uart_mux_get_current_device() == UART_MUX_DEVICE_NONE)
     {
         rt_kprintf("Error: No active UART device\n");
-        rt_kprintf(
-            "Please switch to a device first using uart_mux_switch_to()\n");
+        rt_kprintf("Please switch to a device first using uart_mux_switch_to()\n");
         return;
     }
 
-    // /* 发送数据 */
-    // int ret = uart_mux_send((const uint8_t *)argv[1], strlen(argv[1]));
-    // if (ret < 0)
-    // {
-    //     rt_kprintf("Error: Failed to send data\n");
-    // }
-    // else
-    // {
-    //     rt_kprintf("Successfully sent %d bytes: %s\n", ret, argv[1]);
-    // }
-    rt_size_t sent = rt_device_write(mux_serial, 0, (const uint8_t *)argv[1],
-                                     strlen(argv[1]));
-    if (sent != strlen(argv[1]))
+    ret = uart_mux_send((const uint8_t *)argv[1], strlen(argv[1]));
+    if (ret < 0)
         rt_kprintf("Error: Failed to send data\n");
     else
-        rt_kprintf("Successfully sent %d bytes: %s\n", sent, argv[1]);
+        rt_kprintf("Successfully sent %d bytes: %s\n", ret, argv[1]);
 }
 MSH_CMD_EXPORT(uart_test, Test UART MUX send function);
