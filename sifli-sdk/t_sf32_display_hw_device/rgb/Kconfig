@@ -1,0 +1,22 @@
+config PKG_USING_WS2812
+    bool "Enable WS2812 RGB LED driver"
+    default n
+    select BSP_USING_PWM
+    select BSP_USING_PWM3
+    select BSP_PWM3_CC1_USING_DMA
+    help
+        Drive a WS2812 LED chain with PWM3 channel 1 DMA. On the
+        T-Display-SF32 this output is GPTIM2_CH1 on PA36 (RGB_D1).
+
+if PKG_USING_WS2812
+
+config WS2812_PWM_DEVICE_NAME
+    string "PWM device name"
+    default "pwm3"
+
+config WS2812_LED_COUNT
+    int "Number of LEDs"
+    range 1 64
+    default 4
+
+endif

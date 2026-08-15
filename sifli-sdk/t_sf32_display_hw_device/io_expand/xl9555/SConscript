@@ -8,6 +8,9 @@ CPPPATH = [cwd]
 
 src += Glob('./src/*.c')
 
+if not GetDepend('XL9555_USING_RT_DEVICE'):
+    src = [item for item in src if not str(item).endswith('xl9555_rt_device.c')]
+
 inc += [cwd + '/inc']
 
 group = DefineGroup('XL9555', src, depend = ['PKG_USING_XL9555'], CPPPATH = inc)

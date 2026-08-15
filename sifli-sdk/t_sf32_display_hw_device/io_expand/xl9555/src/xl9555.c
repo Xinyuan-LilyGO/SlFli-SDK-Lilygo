@@ -9,7 +9,23 @@
 #endif
 static struct xl9555_device xl9555_dev;
 
+#ifdef RT_USING_PM
 static rt_err_t xl9555_restore(void);
+#endif
+
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+static rt_sem_t xl9555_irq_sem;
+static rt_thread_t xl9555_irq_thread;
+static rt_bool_t xl9555_irq_running;
+static rt_bool_t xl9555_irq_enabled;
+static rt_bool_t xl9555_irq_attached;
+static rt_uint16_t xl9555_input_cache;
+static xl9555_irq_callback_t xl9555_irq_callback;
+static void *xl9555_irq_user_data;
+
+static rt_err_t xl9555_irq_init(void);
+static void xl9555_irq_deinit(void);
+#endif
 
 /* 内部函数：向指定寄存器写入 16 位数据 */
 static rt_err_t xl9555_write_reg(struct xl9555_device *dev, rt_uint8_t reg,
@@ -63,6 +79,153 @@ static rt_err_t xl9555_read_reg(struct xl9555_device *dev, rt_uint8_t reg,
     }
 }
 
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+
+static void xl9555_irq_rearm(void)
+{
+    if (!xl9555_irq_running || !xl9555_irq_enabled)
+        return;
+
+    rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_ENABLE);
+
+    /* INT is active low. Rescan if it was asserted while the IRQ was off. */
+    if (rt_pin_read(XL9555_IRQ_PIN) == PIN_LOW)
+    {
+        rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_DISABLE);
+        rt_sem_release(xl9555_irq_sem);
+    }
+}
+
+static void xl9555_irq_isr(void *args)
+{
+    (void)args;
+
+    if (!xl9555_irq_running || !xl9555_irq_enabled)
+        return;
+
+    rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_DISABLE);
+    rt_sem_release(xl9555_irq_sem);
+}
+
+static void xl9555_irq_thread_entry(void *parameter)
+{
+    rt_uint16_t input_state;
+    rt_uint16_t changed_mask;
+
+    (void)parameter;
+
+    while (xl9555_irq_running)
+    {
+        if (rt_sem_take(xl9555_irq_sem, RT_WAITING_FOREVER) != RT_EOK)
+            continue;
+        if (!xl9555_irq_running)
+            break;
+        if (!xl9555_irq_enabled)
+            continue;
+
+        if (xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
+                            &input_state) == RT_EOK)
+        {
+            changed_mask = (input_state ^ xl9555_input_cache) &
+                           xl9555_dev.config_cache;
+            xl9555_input_cache = input_state;
+
+            if (changed_mask != 0 && xl9555_irq_callback != RT_NULL)
+            {
+                xl9555_irq_callback(input_state, changed_mask,
+                                    xl9555_irq_user_data);
+            }
+        }
+        else
+        {
+            LOG_E("read input registers after interrupt failed");
+            rt_thread_mdelay(10);
+        }
+
+        xl9555_irq_rearm();
+    }
+}
+
+static void xl9555_irq_deinit(void)
+{
+    xl9555_irq_enabled = RT_FALSE;
+
+    if (xl9555_irq_attached)
+    {
+        rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_DISABLE);
+        rt_pin_detach_irq(XL9555_IRQ_PIN);
+        xl9555_irq_attached = RT_FALSE;
+    }
+
+    xl9555_irq_running = RT_FALSE;
+    if (xl9555_irq_thread != RT_NULL)
+    {
+        if (xl9555_irq_sem != RT_NULL)
+            rt_sem_release(xl9555_irq_sem);
+        rt_thread_delete(xl9555_irq_thread);
+        xl9555_irq_thread = RT_NULL;
+    }
+
+    if (xl9555_irq_sem != RT_NULL)
+    {
+        rt_sem_delete(xl9555_irq_sem);
+        xl9555_irq_sem = RT_NULL;
+    }
+
+    xl9555_irq_callback = RT_NULL;
+    xl9555_irq_user_data = RT_NULL;
+}
+
+static rt_err_t xl9555_irq_init(void)
+{
+    rt_err_t result;
+
+    xl9555_irq_sem = rt_sem_create("xl_irq", 0, RT_IPC_FLAG_FIFO);
+    if (xl9555_irq_sem == RT_NULL)
+        return -RT_ENOMEM;
+
+    xl9555_irq_thread =
+        rt_thread_create("xl9555", xl9555_irq_thread_entry, RT_NULL, 1024,
+                         RT_THREAD_PRIORITY_MAX / 2, 10);
+    if (xl9555_irq_thread == RT_NULL)
+    {
+        xl9555_irq_deinit();
+        return -RT_ENOMEM;
+    }
+
+    result = xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
+                             &xl9555_input_cache);
+    if (result != RT_EOK)
+    {
+        xl9555_irq_deinit();
+        return result;
+    }
+
+    rt_pin_mode(XL9555_IRQ_PIN, PIN_MODE_INPUT_PULLUP);
+    result = rt_pin_attach_irq(XL9555_IRQ_PIN, PIN_IRQ_MODE_FALLING,
+                               xl9555_irq_isr, RT_NULL);
+    if (result != RT_EOK)
+    {
+        xl9555_irq_deinit();
+        return result;
+    }
+    xl9555_irq_attached = RT_TRUE;
+
+    xl9555_irq_running = RT_TRUE;
+    result = rt_thread_startup(xl9555_irq_thread);
+    if (result != RT_EOK)
+    {
+        xl9555_irq_deinit();
+        return result;
+    }
+
+    xl9555_irq_enabled = RT_TRUE;
+    xl9555_irq_rearm();
+    return RT_EOK;
+}
+
+#endif
+
 #ifdef RT_USING_PM
 
 static int xl9555_pm_suspend(const struct rt_device *device, uint8_t mode)
@@ -106,7 +269,9 @@ static const struct rt_device_pm_ops xl9555_pm_op = {
 /* -------------------- 用户 API 接口 -------------------- */
 rt_err_t xl9555_init()
 {
-    rt_uint16_t config_val;
+    if (xl9555_dev.i2c_bus != RT_NULL)
+        return RT_EOK;
+
     xl9555_dev.dev_addr = XL9555_I2C_ADDR;
     xl9555_dev.i2c_bus = rt_i2c_bus_device_find(XL9555_I2C_BUS_NAME);
     if (xl9555_dev.i2c_bus == RT_NULL)
@@ -144,11 +309,26 @@ rt_err_t xl9555_init()
 #ifdef RT_USING_PM
     rt_pm_device_register(NULL, &xl9555_pm_op);
 #endif
+
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+    rt_err_t result = xl9555_irq_init();
+    if (result != RT_EOK)
+    {
+        LOG_E("initialize IRQ pin %d failed: %d", XL9555_IRQ_PIN, result);
+        rt_device_close((rt_device_t)xl9555_dev.i2c_bus);
+        xl9555_dev.i2c_bus = RT_NULL;
+        return result;
+    }
+#endif
     return RT_EOK;
 }
 
 rt_err_t xl9555_deinit(void)
 {
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+    xl9555_irq_deinit();
+#endif
+
     if (xl9555_dev.i2c_bus != RT_NULL)
     {
         rt_device_close((rt_device_t)xl9555_dev.i2c_bus);
@@ -157,6 +337,7 @@ rt_err_t xl9555_deinit(void)
     return RT_EOK;
 }
 
+#ifdef RT_USING_PM
 static rt_err_t xl9555_restore(void)
 {
     xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
@@ -164,6 +345,7 @@ static rt_err_t xl9555_restore(void)
                      xl9555_dev.output_cache);
     return RT_EOK;
 }
+#endif
 
 /* 设置某个引脚方向 (pin: 0-15, mode: 0=输出, 1=输入) */
 void xl9555_pin_mode(rt_uint8_t pin, rt_uint8_t mode)
@@ -214,6 +396,48 @@ rt_uint8_t xl9555_digital_read(rt_uint8_t pin)
     return 0;
 }
 
+rt_err_t xl9555_irq_attach(xl9555_irq_callback_t callback, void *user_data)
+{
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+    xl9555_irq_user_data = user_data;
+    xl9555_irq_callback = callback;
+    return RT_EOK;
+#else
+    return -RT_ENOSYS;
+#endif
+}
+
+rt_err_t xl9555_irq_enable(rt_bool_t enabled)
+{
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+    rt_err_t result;
+
+    if (!xl9555_irq_attached || !xl9555_irq_running)
+        return -RT_ERROR;
+
+    if ((enabled && xl9555_irq_enabled) ||
+        (!enabled && !xl9555_irq_enabled))
+        return RT_EOK;
+
+    if (!enabled)
+    {
+        xl9555_irq_enabled = RT_FALSE;
+        return rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_DISABLE);
+    }
+
+    result = xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
+                             &xl9555_input_cache);
+    if (result != RT_EOK)
+        return result;
+
+    xl9555_irq_enabled = RT_TRUE;
+    xl9555_irq_rearm();
+    return RT_EOK;
+#else
+    return -RT_ENOSYS;
+#endif
+}
+
 rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val)
 {
     if (val)
@@ -233,6 +457,7 @@ rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val)
     xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_1, xl9555_dev.config_cache);
     xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_1,
                      xl9555_dev.output_cache);
+    return RT_EOK;
 }
 
 /* 测试示例：在 msh shell 中调用 */

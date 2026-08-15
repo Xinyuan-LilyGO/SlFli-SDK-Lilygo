@@ -14,4 +14,20 @@ config PKG_USING_BHI260AP
         config BHI260AP_IRQ_PIN
             int "BHI260AP IRQ pin number"
             default 27
+
+        config BHI260AP_USING_RT_SENSOR
+            bool "Register BHI260AP in RT-Thread Sensor framework"
+            default n
+            select RT_USING_SENSOR
+
+        if BHI260AP_USING_RT_SENSOR
+            config BHI260AP_RT_SENSOR_NAME
+                string "RT-Thread Sensor device suffix"
+                default "bhi260"
+
+            config BHI260AP_RT_SENSOR_ODR
+                int "Default Sensor output data rate (Hz)"
+                range 1 255
+                default 100
+        endif
     endif

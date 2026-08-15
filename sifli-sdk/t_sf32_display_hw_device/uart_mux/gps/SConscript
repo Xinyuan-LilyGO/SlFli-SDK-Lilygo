@@ -30,8 +30,10 @@ for item in list:
 # Return('objs')
 
 src   = []
-inc = [cwd]
+inc = [cwd, os.path.dirname(cwd)]
 src += Glob('./*.c')
 src += objs
+if not GetDepend('L76K_USING_RT_SENSOR'):
+    src = [item for item in src if not str(item).endswith('l76k_rt_sensor.c')]
 group = DefineGroup('L76K', src, depend = ['PKG_USING_L76K'], CPPPATH = inc )
 Return('group')

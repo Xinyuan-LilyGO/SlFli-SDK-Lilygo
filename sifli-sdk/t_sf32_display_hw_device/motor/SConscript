@@ -1,7 +1,9 @@
 from building import *
 
 cwd     = GetCurrentDir()
-src     = Glob('*.c')
+src     = Glob('aw86224.c')
+if GetDepend('AW86224_USING_RT_DEVICE'):
+    src += Glob('aw86224_rt_device.c')
 inc = []
 
 CPPPATH = [cwd]

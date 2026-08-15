@@ -18,10 +18,12 @@
 static struct rt_i2c_bus_device *tca8418_i2c_bus = NULL;
 static rt_sem_t key_sem;
 static rt_mq_t key_mq = NULL;
+static rt_bool_t tca8418_initialized = RT_FALSE;
 
 static inline rt_err_t TCA8418_KPConfig(void);
 static inline rt_err_t TCA8418_EnableInterrupt(void);
 static void tca8418_int_isr(void *args);
+static void tca8418_enable_irq_and_rescan(void);
 
 #define TCA8418_KEY_EVENT_MAX       10
 #define TCA8418_EVENT_COUNT_MASK    0x0F
@@ -131,7 +133,7 @@ static void tca8418_pm_resume(const struct rt_device *device, uint8_t mode)
     rt_pin_mode(KEY_BOARD_IRQ_PIN, PIN_MODE_INPUT_PULLUP);
     rt_pin_attach_irq(KEY_BOARD_IRQ_PIN, PIN_IRQ_MODE_FALLING, tca8418_int_isr,
                       RT_NULL);
-    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
+    tca8418_enable_irq_and_rescan();
 }
 
 static const struct rt_device_pm_ops tca8418_pm_op = {
@@ -144,6 +146,16 @@ static void tca8418_int_isr(void *args)
 {
     rt_sem_release(key_sem); // 信号量必须是RT_IPC_FLAG_FIFO类型
     rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_DISABLE); // 临时关闭中断
+}
+
+static void tca8418_enable_irq_and_rescan(void)
+{
+    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
+
+    if (rt_pin_read(KEY_BOARD_IRQ_PIN) == PIN_LOW)
+    {
+        rt_sem_release(key_sem);
+    }
 }
 
 /**
@@ -263,7 +275,7 @@ static void key_scan_work(void)
             }
         }
     }
-    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE); // 重新启用中断
+    tca8418_enable_irq_and_rescan();
 }
 
 static void key_thread_entry(void *param)
@@ -289,6 +301,10 @@ static void key_thread_entry(void *param)
 rt_err_t key_board_tca8418_init(void)
 {
     int ret;
+
+    if (tca8418_initialized)
+        return RT_EOK;
+
     TCA8418_reset();
     key_sem = rt_sem_create("key_sem", 0, RT_IPC_FLAG_FIFO);
 
@@ -347,7 +363,8 @@ rt_err_t key_board_tca8418_init(void)
 
     uint8_t dummy, count;
     TCA8418_ReadRegister(KEY_LCK_EC, &count, 1);
-    for (uint8_t i = 0; i < count && i < 10; i++)
+    count &= TCA8418_EVENT_COUNT_MASK;
+    for (uint8_t i = 0; i < count && i < TCA8418_KEY_EVENT_MAX; i++)
         TCA8418_ReadRegister(KEY_EVENT_A, &dummy, 1);
     // 清除中断状态位
     uint8_t clr = 0x01;
@@ -356,7 +373,7 @@ rt_err_t key_board_tca8418_init(void)
     rt_pin_mode(KEY_BOARD_IRQ_PIN, PIN_MODE_INPUT_PULLUP);
     rt_pin_attach_irq(KEY_BOARD_IRQ_PIN, PIN_IRQ_MODE_FALLING, tca8418_int_isr,
                       RT_NULL);
-    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_ENABLE);
+    tca8418_enable_irq_and_rescan();
 
     rt_thread_t tid = rt_thread_create("key", key_thread_entry, RT_NULL, 1024,
                                        RT_THREAD_PRIORITY_HIGH, 10);
@@ -365,6 +382,7 @@ rt_err_t key_board_tca8418_init(void)
     #ifdef RT_USING_PM
     rt_pm_device_register(NULL, &tca8418_pm_op);
     #endif
+    tca8418_initialized = RT_TRUE;
     return RT_EOK;
 }
 

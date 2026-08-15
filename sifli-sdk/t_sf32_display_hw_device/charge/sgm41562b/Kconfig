@@ -11,4 +11,14 @@ config PKG_USING_SGM41562B
         config SGM41562B_IRQ_PIN
             int "SGM41562B IRQ pin number"
             default -1
+
+        config SGM41562B_USING_RT_DEVICE
+            bool "Register SGM41562B as an RT-Thread device"
+            default n
+
+        if SGM41562B_USING_RT_DEVICE
+            config SGM41562B_RT_DEVICE_NAME
+                string "RT-Thread device name"
+                default "sgm41562b"
+        endif
     endif

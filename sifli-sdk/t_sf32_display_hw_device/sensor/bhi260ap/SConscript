@@ -8,6 +8,9 @@ CPPPATH = [cwd]
 
 src += Glob('./src/*.c')
 
+if not GetDepend('BHI260AP_USING_RT_SENSOR'):
+    src = [item for item in src if not str(item).endswith('bhi260ap_rt_sensor.c')]
+
 inc += [cwd + '/inc']
 
 inc += [cwd + '/firmware']

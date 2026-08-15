@@ -25,6 +25,7 @@ static TinyGPSPlus l76k_gps;
 /* 工作模式 */
 static L76K_Mode l76k_cur_mode = L76K_MODE_NORMAL;
 static uint32_t rx_bytes = 0;
+static bool l76k_initialized = false;
 
 /* 支持的波特率列表 */
 static const uint32_t supported_baudrates[] = {4800,  9600,  19200,
@@ -130,7 +131,7 @@ static int l76k_set_module_baudrate(uint32_t new_baudrate)
 
     L76K_LOG("Sending baudrate change command: %s", cmd);
 
-    if (l76k_send_cmd(cmd, strlen(cmd) + 1) != 0)
+    if (l76k_send_cmd(cmd, strlen(cmd)) != 0)
         return -2;
 
     rt_thread_mdelay(500);
@@ -345,6 +346,9 @@ static const struct rt_device_pm_ops l76k_pm_op = {
 /* 初始化 */
 int l76k_init(const char *uart_name, uint32_t baudrate)
 {
+    if (l76k_initialized)
+        return 0;
+
     /* 硬件使能 */
     l76k_en();
     l76k_reset();
@@ -375,36 +379,41 @@ int l76k_init(const char *uart_name, uint32_t baudrate)
         }
     }
 
-    char cmd[32];
+    char cmd[64];
     uint8_t cs;
     rt_snprintf(cmd, sizeof(cmd), "$PCAS04,5");
     cs = nmea_checksum(cmd);
     rt_snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), "*%02X\r\n", cs);
     L76K_LOG("Sending baudrate change command: %s", cmd);
-    if (l76k_send_cmd(cmd, strlen(cmd) + 1) != 0)
+    if (l76k_send_cmd(cmd, strlen(cmd)) != 0)
         return -2;
     rt_thread_mdelay(250);
 
     rt_snprintf(cmd, sizeof(cmd), "$PCAS03,1,1,1,1,1,1,1,1,0,0,,,0,0*02\r\n");
     L76K_LOG("Sending baudrate change command: %s", cmd);
-    if (l76k_send_cmd(cmd, strlen(cmd) + 1) != 0)
+    if (l76k_send_cmd(cmd, strlen(cmd)) != 0)
         return -2;
     rt_thread_mdelay(250);
 
     rt_snprintf(cmd, sizeof(cmd), "$PCAS11,3*1E\r\n");
     L76K_LOG("Sending baudrate change command: %s", cmd);
-    if (l76k_send_cmd(cmd, strlen(cmd) + 1) != 0)
+    if (l76k_send_cmd(cmd, strlen(cmd)) != 0)
         return -2;
 
     L76K_LOG("Initialized, baudrate=%lu\n", baudrate);
+    l76k_initialized = true;
     return 0;
 }
 
 void l76k_deinit(void)
 {
+    if (!l76k_initialized)
+        return;
+
     /* 注销回调 */
     uart_mux_register_rx_callback(UART_MUX_DEVICE_GPS, RT_NULL);
     rt_mutex_detach(&l76k_mutex);
+    l76k_initialized = false;
     L76K_LOG("Deinitialized\n");
 }
 

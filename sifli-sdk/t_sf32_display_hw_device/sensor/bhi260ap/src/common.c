@@ -1,4 +1,4 @@
-#include "common.h"
+#include "../inc/common.h"
 
 char *get_sensor_error_text(uint8_t sensor_error)
 {

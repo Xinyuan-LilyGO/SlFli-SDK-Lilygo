@@ -1,0 +1,13 @@
+import os
+from building import *
+
+cwd     = GetCurrentDir()
+src     = Glob('*.c')
+inc = []
+
+CPPPATH = [cwd]
+inc += [cwd, os.path.dirname(cwd)]
+
+group = DefineGroup('ESP32C6_AT_COMMAND', src, depend = ['PKG_USING_ESP32C6_AT_COMMAND'], CPPPATH = inc)
+
+Return('group')

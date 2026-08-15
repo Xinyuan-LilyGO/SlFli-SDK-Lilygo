@@ -14,4 +14,14 @@ config PKG_USING_XL9555
         config XL9555_IRQ_PIN
             int "XL9555 IRQ pin number"
             default -1
+
+        config XL9555_USING_RT_DEVICE
+            bool "Register XL9555 as an RT-Thread device"
+            default n
+
+        if XL9555_USING_RT_DEVICE
+            config XL9555_RT_DEVICE_NAME
+                string "RT-Thread device name"
+                default "xl9555"
+        endif
     endif

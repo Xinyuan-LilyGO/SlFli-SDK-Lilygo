@@ -117,6 +117,9 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
 {
     rt_uint8_t device_id;
 
+    if (_handle != RT_NULL)
+        return _handle;
+
     _handle = rt_calloc(1, sizeof(struct sgm41562b_device));
     if (_handle == RT_NULL)
     {
@@ -130,6 +133,7 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
     {
         LOG_E("I2C bus '%s' not found", i2c_bus_name);
         rt_free(_handle);
+        _handle = RT_NULL;
         return RT_NULL;
     }
 
@@ -148,6 +152,7 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
         LOG_E("Failed to open I2C bus '%s'", i2c_bus_name);
         rt_mutex_detach(&_handle->lock);
         rt_free(_handle);
+        _handle = RT_NULL;
         return RT_NULL;
     }
 
@@ -166,6 +171,7 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
         rt_device_close((rt_device_t)_handle->i2c_bus);
         rt_mutex_detach(&_handle->lock);
         rt_free(_handle);
+        _handle = RT_NULL;
         return RT_NULL;
     }
 
@@ -211,6 +217,8 @@ rt_err_t sgm41562b_deinit(sgm41562b_handle_t handle)
     rt_device_close((rt_device_t)handle->i2c_bus);
     rt_mutex_detach(&handle->lock);
     rt_free(handle);
+    if (_handle == handle)
+        _handle = RT_NULL;
 
     return RT_EOK;
 }

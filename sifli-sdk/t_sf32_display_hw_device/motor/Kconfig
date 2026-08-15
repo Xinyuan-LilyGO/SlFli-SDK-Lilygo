@@ -10,4 +10,15 @@ config PKG_USING_AW86224
         config AW86224_I2C_BUS_NAME
             string "I2C bus name"
             default "i2c1"
+
+        config AW86224_USING_RT_DEVICE
+            bool "Register AW86224 as an RT-Thread device"
+            default n
+            select PKG_USING_XL9555
+
+        if AW86224_USING_RT_DEVICE
+            config AW86224_RT_DEVICE_NAME
+                string "RT-Thread device name"
+                default "aw86224"
+        endif
     endif

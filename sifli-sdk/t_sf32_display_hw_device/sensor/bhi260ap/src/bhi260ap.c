@@ -1,6 +1,6 @@
 #include "bhi260ap.h"
 #include "bhi260ap_firmware.h"
-#include "common.h"
+#include "../inc/common.h"
 #include "rthw.h"
 #include "ulog.h"
 
@@ -581,6 +581,9 @@ void bhi260ap_thread_resume(void)
 
 rt_err_t rt_bhi260ap_init(void)
 {
+    if (bhi260ap_sensor_thread != RT_NULL)
+        return RT_EOK;
+
     #if defined(BHI260AP_IRQ_PIN)
     bhi260ap_sem = rt_sem_create("bhi260ap_sem", 0, RT_IPC_FLAG_FIFO);
     if (bhi260ap_sem == RT_NULL)

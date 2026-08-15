@@ -22,6 +22,9 @@ cwd     = GetCurrentDir()
 
 src += Glob('./src/*.c')
 
+if not GetDepend('TCA8418_USING_RT_DEVICE'):
+    src = [item for item in src if not str(item).endswith('tca8418_rt_device.c')]
+
 inc += [cwd + '/inc']
 
 group = DefineGroup('INPUT_KEY_BOARD', src, depend = ['PKG_USING_PKG_KEY_BOARD'], CPPPATH = inc)

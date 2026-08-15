@@ -11,4 +11,15 @@ menuconfig PKG_USING_PKG_KEY_BOARD
         config KEY_BOARD_IRQ_PIN
             int "KEY_BOARD IRQ pin number"
             default 11
+
+        config TCA8418_USING_RT_DEVICE
+            bool "Register TCA8418 as an RT-Thread device"
+            default n
+            select PKG_USING_XL9555
+
+        if TCA8418_USING_RT_DEVICE
+            config TCA8418_RT_DEVICE_NAME
+                string "RT-Thread device name"
+                default "tca8418"
+        endif
     endif

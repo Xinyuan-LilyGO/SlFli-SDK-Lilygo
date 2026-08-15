@@ -38,11 +38,18 @@ struct xl9555_device
     rt_uint16_t config_cache;           /* 配置寄存器缓存 */
 };
 
+/* Called from the XL9555 interrupt worker thread, not from the GPIO ISR. */
+typedef void (*xl9555_irq_callback_t)(rt_uint16_t input_state,
+                                      rt_uint16_t changed_mask,
+                                      void *user_data);
+
 rt_err_t xl9555_init();
 rt_err_t xl9555_deinit(void);   // 新增
 void xl9555_pin_mode(rt_uint8_t pin, rt_uint8_t mode);
 void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val);
 rt_uint8_t xl9555_digital_read(rt_uint8_t pin);
 rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val);
+rt_err_t xl9555_irq_attach(xl9555_irq_callback_t callback, void *user_data);
+rt_err_t xl9555_irq_enable(rt_bool_t enabled);
 
 #endif /* __XL9555_H__ */
