@@ -77,6 +77,7 @@
 #define CACHE_BUF_SIZE          (3*MAINBUF_SIZE + 100)
 
 #define FADE_OUT_TIME_MS      1000
+#define AUDIO_TRANSITION_TIMEOUT_MS 200
 
 #define MP3_ONE_STEREO_FRAME_SIZE (MAX_NCHAN * MAX_NGRAN * MAX_NSAMP * 2)
 #define MP3_FRAME_CACHE_COUNT (4) // if not a2dp source, 2 is enough
@@ -555,6 +556,33 @@ static void callback_playing_progress(mp3ctrl_handle ctrl)
     }
 }
 
+static void audio_transition_begin(mp3ctrl_handle ctrl)
+{
+    rt_tick_t start;
+
+    if (!ctrl->client || ctrl->is_suspended)
+        return;
+
+    start = rt_tick_get_millisecond();
+    audio_ioctl(ctrl->client, AUDIO_IOCTL_FADE_OUT, NULL);
+    while (audio_ioctl(ctrl->client, AUDIO_IOCTL_FADE_DONE, NULL) != 0)
+    {
+        if ((rt_tick_get_millisecond() - start) >=
+                AUDIO_TRANSITION_TIMEOUT_MS)
+        {
+            break;
+        }
+        rt_thread_mdelay(5);
+    }
+    audio_ioctl(ctrl->client, AUDIO_IOCTL_FLUSH, NULL);
+}
+
+static void audio_transition_fade_in(mp3ctrl_handle ctrl)
+{
+    if (ctrl->client && !ctrl->is_suspended)
+        audio_ioctl(ctrl->client, AUDIO_IOCTL_FADE_IN, NULL);
+}
+
 static int vbe_audio_write(audio_client_t client, int16_t *out, int size)
 {
     int ret = 1; //defaut, make mp3 decode continue
@@ -574,6 +602,7 @@ static void mp3ctrl_thread_entry_file(void *parameter)
     uint8_t  is_paused = 0;
     uint8_t  is_closing = 0;
     uint8_t  cache_full_occured = 0;
+    uint8_t  transition_fade_in = 0;
     mp3ctrl_handle ctrl = (mp3ctrl_handle)parameter;
     HMP3Decoder hMP3Decoder = MP3InitDecoder();
     RT_ASSERT(hMP3Decoder);
@@ -699,6 +728,8 @@ static void mp3ctrl_thread_entry_file(void *parameter)
             p_cmd = rt_slist_entry(first, mp3_cmt_t, snode);
             rt_slist_remove(&ctrl->cmd_slist, first);
             mp3_slist_unlock(ctrl);
+            audio_transition_begin(ctrl);
+            transition_fade_in = 1;
 #if RT_USING_DFS
             if (ctrl->is_file)
                 lseek(ctrl->fd, ctrl->tag_len, SEEK_SET);
@@ -748,13 +779,17 @@ static void mp3ctrl_thread_entry_file(void *parameter)
             callback_playing_progress(ctrl);
             audio_mem_free(p_cmd);
             rt_event_send(ctrl->api_event, API_EVENT_SEEK);
+            rt_event_send(ctrl->event, MP3_EVENT_FLAG_DECODE);
         }
 
         if (evt & MP3_EVENT_FLAG_NEXT)
         {
+            audio_transition_begin(ctrl);
+            transition_fade_in = 1;
             frame_err = 0;
             ctrl->frame_index = 0;
             ctrl->last_display_seconds = -1;
+            cache_full_occured = 0;
             mp3_slist_lock(ctrl);
             replace(ctrl);
             MP3FreeDecoder(hMP3Decoder);
@@ -766,6 +801,7 @@ static void mp3ctrl_thread_entry_file(void *parameter)
                 is_paused = 0; //resume
             }
             rt_event_send(ctrl->api_event, API_EVENT_NEXT);
+            rt_event_send(ctrl->event, MP3_EVENT_FLAG_DECODE);
         }
 
         if (is_paused == 1 || ctrl->is_suspended)
@@ -957,6 +993,11 @@ look_write_result:
                 LOG_I("mp3 open ctrl=0x%x, client=0x%x, c=%d samrate=%d samples=%d",
                       ctrl, ctrl->client, mp3FrameInfo.nChans, mp3FrameInfo.samprate, mp3FrameInfo.outputSamps);
             }
+            if (transition_fade_in)
+            {
+                audio_transition_fade_in(ctrl);
+                transition_fade_in = 0;
+            }
             LOG_D("nFrames=%d", nFrames);
 #if !TWS_MIX_ENABLE
             if (audio_device_is_a2dp_sink())
@@ -1076,6 +1117,7 @@ static void wave_thread_entry_file(void *parameter)
     uint8_t  is_paused = 0;
     uint8_t  is_closing = 0;
     uint8_t  cache_full_occured = 0;
+    uint8_t  transition_fade_in = 0;
     uint8_t  old_channels = -1;;
     uint32_t old_samplerate = -1;
     rt_tick_t start = 0;
@@ -1182,6 +1224,8 @@ static void wave_thread_entry_file(void *parameter)
             p_cmd = rt_slist_entry(first, mp3_cmt_t, snode);
             rt_slist_remove(&ctrl->cmd_slist, first);
             mp3_slist_unlock(ctrl);
+            audio_transition_begin(ctrl);
+            transition_fade_in = 1;
             offset = (uint32_t)p_cmd->cmd_paramter1 * (uint64_t)ctrl->wave_bytes_per_second;
             if (offset != -1)
             {
@@ -1196,12 +1240,16 @@ static void wave_thread_entry_file(void *parameter)
             }
             audio_mem_free(p_cmd);
             rt_event_send(ctrl->api_event, API_EVENT_SEEK);
+            rt_event_send(ctrl->event, MP3_EVENT_FLAG_DECODE);
         }
 
         if (evt & MP3_EVENT_FLAG_NEXT)
         {
+            audio_transition_begin(ctrl);
+            transition_fade_in = 1;
             ctrl->last_display_seconds = -1;
             ctrl->frame_index = 0;
+            cache_full_occured = 0;
             mp3_slist_lock(ctrl);
             replace(ctrl);
             mp3_slist_unlock(ctrl);
@@ -1210,6 +1258,7 @@ static void wave_thread_entry_file(void *parameter)
                 is_paused = 0; //resume
             }
             rt_event_send(ctrl->api_event, API_EVENT_NEXT);
+            rt_event_send(ctrl->event, MP3_EVENT_FLAG_DECODE);
         }
 
         if (is_paused == 1 || ctrl->is_suspended)
@@ -1356,6 +1405,11 @@ check_write_result:
             RT_ASSERT(ctrl->client);
             LOG_I("wav open ctrl=0x%x, client=0x%x, c=%d samrate=%d",
                   ctrl, ctrl->client, ctrl->wave_channels, ctrl->wave_samplerate);
+        }
+        if (transition_fade_in)
+        {
+            audio_transition_fade_in(ctrl);
+            transition_fade_in = 0;
         }
         LOG_D("nFrames=%d", nFrames);
         int ret;

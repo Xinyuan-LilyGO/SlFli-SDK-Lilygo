@@ -1292,6 +1292,51 @@ static int mp3_play_callback_func(audio_server_callback_cmt_t cmd,
     return 0;
 }
 
+static rt_err_t mp3_switch_to_file(const char *filename)
+{
+    mp3_ioctl_cmd_param_t parameter;
+
+    if (audio.mp3_handle)
+    {
+        parameter.filename = filename;
+        parameter.len = (uint32_t)-1;
+        if (mp3ctrl_ioctl(audio.mp3_handle,
+                          MP3CTRL_IOCTRL_CHANGE_FILE,
+                          (uint32_t)&parameter) == 0)
+        {
+            return RT_EOK;
+        }
+        AUDIO_LOG_DEBUG("MP3 seamless switch failed, reopen: %s\n",
+                        filename);
+    }
+
+    audio_pa_close();
+    if (audio.mp3_handle)
+    {
+        mp3ctrl_close(audio.mp3_handle);
+        audio.mp3_handle = NULL;
+    }
+
+    audio.mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC, filename,
+                                    mp3_play_callback_func, NULL);
+    if (audio.mp3_handle == NULL)
+    {
+        AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n", filename);
+        return -RT_ERROR;
+    }
+    if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
+    {
+        AUDIO_LOG_DEBUG("mp3ctrl_play failed: %s\n", filename);
+        mp3ctrl_close(audio.mp3_handle);
+        audio.mp3_handle = NULL;
+        return -RT_ERROR;
+    }
+
+    rt_thread_mdelay(30);
+    audio_pa_open();
+    return RT_EOK;
+}
+
 void mp3_proc_thread_entry(void *params)
 {
     AUDIO_LOG_DEBUG("%s\n", __func__);
@@ -1311,8 +1356,8 @@ void mp3_proc_thread_entry(void *params)
             if (audio.mp3_handle)
             {
                 /* Close fistly if mp3 is playing. */
-                mp3ctrl_close(audio.mp3_handle);
                 audio_pa_close();
+                mp3ctrl_close(audio.mp3_handle);
             }
             audio.mp3_handle = mp3ctrl_open(
                 AUDIO_TYPE_LOCAL_MUSIC, /* audio type, see enum audio_type_t. */
@@ -1324,8 +1369,6 @@ void mp3_proc_thread_entry(void *params)
                 AUDIO_LOG_DEBUG("mp3ctrl_open failed:%s\n", msg.param.filename);
                 break;
             }
-            audio_pa_open();
-            rt_thread_mdelay(30);
             /* Set loop times. */
             mp3ctrl_ioctl(
                 audio.mp3_handle, /* handle returned by mp3ctrl_open. */
@@ -1335,6 +1378,11 @@ void mp3_proc_thread_entry(void *params)
             if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
             {
                 AUDIO_LOG_DEBUG("mp3ctrl_play failed:%s\n", msg.param.filename);
+            }
+            else
+            {
+                rt_thread_mdelay(30);
+                audio_pa_open();
             }
             break;
 
@@ -1402,27 +1450,7 @@ void mp3_proc_thread_entry(void *params)
                             audio.mp3_shuffle ? "random" : "next", next_idx + 1,
                             audio.mp3_playlist_count,
                             audio.mp3_playlist[next_idx]);
-            if (audio.mp3_handle)
-            {
-                mp3ctrl_close(audio.mp3_handle);
-                audio_pa_close();
-            }
-            audio.mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC,
-                                            audio.mp3_playlist[next_idx],
-                                            mp3_play_callback_func, NULL);
-            if (audio.mp3_handle == NULL)
-            {
-                AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n",
-                                audio.mp3_playlist[next_idx]);
-                break;
-            }
-            audio_pa_open();
-            rt_thread_mdelay(30);
-            if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
-            {
-                AUDIO_LOG_DEBUG("mp3ctrl_play failed: %s\n",
-                                audio.mp3_playlist[next_idx]);
-            }
+            mp3_switch_to_file(audio.mp3_playlist[next_idx]);
             break;
         }
 
@@ -1445,27 +1473,7 @@ void mp3_proc_thread_entry(void *params)
             AUDIO_LOG_DEBUG("Playing prev [%d/%d]: %s\n", prev_idx + 1,
                             audio.mp3_playlist_count,
                             audio.mp3_playlist[prev_idx]);
-            if (audio.mp3_handle)
-            {
-                mp3ctrl_close(audio.mp3_handle);
-                audio_pa_close();
-            }
-            audio.mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC,
-                                            audio.mp3_playlist[prev_idx],
-                                            mp3_play_callback_func, NULL);
-            if (audio.mp3_handle == NULL)
-            {
-                AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n",
-                                audio.mp3_playlist[prev_idx]);
-                break;
-            }
-            audio_pa_open();
-            rt_thread_mdelay(30);
-            if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
-            {
-                AUDIO_LOG_DEBUG("mp3ctrl_play failed: %s\n",
-                                audio.mp3_playlist[prev_idx]);
-            }
+            mp3_switch_to_file(audio.mp3_playlist[prev_idx]);
             break;
         }
 

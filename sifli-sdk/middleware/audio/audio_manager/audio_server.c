@@ -109,7 +109,7 @@
     #define AUDIO_SERVER_STACK_SIZE         (4096)
 #else
     #define CODEC_DATA_UNIT_LEN             (320)
-    #define AUDIO_SERVER_STACK_SIZE         (9 * 1024)
+    #define AUDIO_SERVER_STACK_SIZE         (4 * 1024)
 #endif
 
 #define FADE_VOLUME_STEP        4
@@ -3691,7 +3691,7 @@ AUDIO_API int audio_ioctl(audio_client_t handle, int cmd, void *parameter)
     {
         handle->is_factory_loopback = gain | 0x80;
     }
-    else if (cmd == 1)
+    else if (cmd == AUDIO_IOCTL_GET_QUEUED_TIME)
     {
         uint32_t *time_ms = (uint32_t *)parameter;
         ret = -1;
@@ -3705,7 +3705,7 @@ AUDIO_API int audio_ioctl(audio_client_t handle, int cmd, void *parameter)
             }
         }
     }
-    else if (cmd == 2)
+    else if (cmd == AUDIO_IOCTL_FADE_DONE)
     {
 #if !SOFTWARE_TX_MIX_ENABLE
         ret = -1;
@@ -3715,7 +3715,7 @@ AUDIO_API int audio_ioctl(audio_client_t handle, int cmd, void *parameter)
         }
 #endif
     }
-    else if (cmd == -1)
+    else if (cmd == AUDIO_IOCTL_FADE_OUT)
     {
 #if !SOFTWARE_TX_MIX_ENABLE
         lock();
@@ -3728,6 +3728,30 @@ AUDIO_API int audio_ioctl(audio_client_t handle, int cmd, void *parameter)
         }
         unlock();
 #endif
+    }
+    else if (cmd == AUDIO_IOCTL_FADE_IN)
+    {
+#if !SOFTWARE_TX_MIX_ENABLE
+        lock();
+        if (!handle->is_suspended)
+        {
+            handle->is_fade_vol = 2;
+            handle->is_fade_end = 0;
+            handle->fade_vol_steps = 0;
+            g_server.last_tick = rt_tick_get_millisecond();
+        }
+        unlock();
+#endif
+    }
+    else if (cmd == AUDIO_IOCTL_FLUSH)
+    {
+        rt_base_t level;
+
+        lock();
+        level = rt_hw_interrupt_disable();
+        rt_ringbuffer_reset(&handle->ring_buf);
+        rt_hw_interrupt_enable(level);
+        unlock();
     }
     LOG_I("audio_ioctl: cmd=%d ret=%d", cmd, ret);
     return ret;

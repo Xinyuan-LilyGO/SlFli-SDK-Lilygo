@@ -86,6 +86,7 @@ static rt_thread_t g_playback_thread = NULL;
 #define  PLAYBACK_START_EVENT_FLAG         (1 << 1)
 #define  PLAYBACK_STOPPING_EVENT_FLAG      (1 << 2)
 #define  PLAYBACK_STOPPED_EVENT_FLAG       (1 << 3)
+#define  A2DP_TRANSITION_TIMEOUT_MS         200
 
 
 static uint8_t list_push_back(play_list_t *list, list_hdr_t *hdr)
@@ -430,7 +431,12 @@ static void decode_playback_thread(void *args)
         {
             if (inst_data->snk_data.audio_client)
             {
-                USER_TRACE("bt_music: open again--\r\n");
+                USER_TRACE("bt_music: reuse audio client--\r\n");
+                audio_ioctl(inst_data->snk_data.audio_client,
+                            AUDIO_IOCTL_FADE_IN, NULL);
+                is_stopped = 0;
+                rt_event_send(g_playback_evt,
+                              PLAYBACK_GETDATA_EVENT_FLAG);
                 continue;
             }
 
@@ -469,6 +475,8 @@ static void decode_playback_thread(void *args)
             param.write_samplerate = 48000;
             debug_tx_cnt = 0;
             inst_data->snk_data.audio_client = audio_open(AUDIO_TYPE_BT_MUSIC, AUDIO_TX, &param, NULL, NULL);
+            audio_ioctl(inst_data->snk_data.audio_client,
+                        AUDIO_IOCTL_FADE_IN, NULL);
             is_stopped = 0;
             if (!resample)
             {
@@ -572,7 +580,12 @@ static void decode_playback_thread(void *args)
         {
             if (inst_data->snk_data.audio_client)
             {
-                USER_TRACE("bt_music: open again--\r\n");
+                USER_TRACE("bt_music: reuse audio client--\r\n");
+                audio_ioctl(inst_data->snk_data.audio_client,
+                            AUDIO_IOCTL_FADE_IN, NULL);
+                is_stopped = 0;
+                rt_event_send(g_playback_evt,
+                              PLAYBACK_GETDATA_EVENT_FLAG);
                 continue;
             }
 
@@ -618,6 +631,8 @@ static void decode_playback_thread(void *args)
             param.write_cache_size = 8192;
             debug_tx_cnt = 0;
             inst_data->snk_data.audio_client = audio_open(AUDIO_TYPE_BT_MUSIC, AUDIO_TX, &param, audio_bt_music_client_cb, NULL);
+            audio_ioctl(inst_data->snk_data.audio_client,
+                        AUDIO_IOCTL_FADE_IN, NULL);
             is_stopped = 0;
 
             if (!resample)
@@ -768,31 +783,67 @@ static void stop_audio_playback(bts2s_av_inst_data *inst)
     USER_TRACE("stop_audio_playback state:%d\n", inst->snk_data.play_state);
     if (inst->snk_data.play_state == TRUE)
     {
+#if defined(AUDIO_USING_MANAGER) && defined(AUDIO_BT_AUDIO)
+        if (inst->snk_data.audio_client)
+        {
+            rt_tick_t start = rt_tick_get_millisecond();
+
+            audio_ioctl(inst->snk_data.audio_client,
+                        AUDIO_IOCTL_FADE_OUT, NULL);
+            while (audio_ioctl(inst->snk_data.audio_client,
+                               AUDIO_IOCTL_FADE_DONE, NULL) != 0)
+            {
+                if ((rt_tick_get_millisecond() - start) >=
+                        A2DP_TRANSITION_TIMEOUT_MS)
+                {
+                    break;
+                }
+                rt_thread_mdelay(5);
+            }
+            audio_ioctl(inst->snk_data.audio_client,
+                        AUDIO_IOCTL_FLUSH, NULL);
+        }
+#endif
 #ifdef A2DP_RELAY_SERVICE
         a2dp_relay_stop();
 #endif // A2DP_RELAY_SERVICE
         rt_event_send(g_playback_evt, PLAYBACK_STOPPING_EVENT_FLAG);
         rt_event_recv(g_playback_evt, PLAYBACK_STOPPED_EVENT_FLAG, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, RT_WAITING_FOREVER, &evt);
         inst->snk_data.play_state = FALSE;
+    }
+
 #if defined(AUDIO_USING_MANAGER) && defined(AUDIO_BT_AUDIO)
-        sifli_resample_close(resample);
-        resample = NULL;
+    if (inst->snk_data.audio_client)
+    {
+        if (resample)
+        {
+            sifli_resample_close(resample);
+            resample = NULL;
+        }
 #if BT_BAP_BROADCAST_SOURCE
         audio_mem_free(g_left);
         g_left = NULL;
         audio_mem_free(g_right);
         g_right = NULL;
+        g_remain = 0;
+        g_offset = 0;
 #endif
         audio_close(inst->snk_data.audio_client);
         inst->snk_data.audio_client = NULL;
+    }
 #endif
 #if PKG_USING_VBE_DRC
+    if (inst->snk_data.vbe)
+    {
         vbe_drc_close(inst->snk_data.vbe);
-        rt_free(inst->snk_data.vbe_out);
         inst->snk_data.vbe = NULL;
-        inst->snk_data.vbe_out = NULL;
-#endif
     }
+    if (inst->snk_data.vbe_out)
+    {
+        rt_free(inst->snk_data.vbe_out);
+        inst->snk_data.vbe_out = NULL;
+    }
+#endif
 
     list_all_free(&(inst->snk_data.playlist));
 
@@ -814,27 +865,35 @@ static void stop_audio_playback_temporarily(bts2s_av_inst_data *inst)
     if (inst->snk_data.play_state == TRUE)
     {
         rt_event_send(g_playback_evt, PLAYBACK_STOPPING_EVENT_FLAG);
-        rt_event_recv(g_playback_evt, PLAYBACK_STOPPED_EVENT_FLAG, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, RT_WAITING_FOREVER, &evt);
+        rt_event_recv(g_playback_evt, PLAYBACK_STOPPED_EVENT_FLAG,
+                      RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
+                      RT_WAITING_FOREVER, &evt);
         inst->snk_data.play_state = FALSE;
 #if defined(AUDIO_USING_MANAGER) && defined(AUDIO_BT_AUDIO)
-        sifli_resample_close(resample);
-        resample = NULL;
-#if BT_BAP_BROADCAST_SOURCE
-        audio_mem_free(g_left);
-        g_left = NULL;
-        audio_mem_free(g_right);
-        g_right = NULL;
-#endif
-        audio_close(inst->snk_data.audio_client);
-        inst->snk_data.audio_client = NULL;
-#endif
-#if PKG_USING_VBE_DRC
-        vbe_drc_close(inst->snk_data.vbe);
-        rt_free(inst->snk_data.vbe_out);
-        inst->snk_data.vbe = NULL;
-        inst->snk_data.vbe_out = NULL;
-#endif
+        if (inst->snk_data.audio_client)
+        {
+            rt_tick_t start = rt_tick_get_millisecond();
 
+            audio_ioctl(inst->snk_data.audio_client,
+                        AUDIO_IOCTL_FADE_OUT, NULL);
+            while (audio_ioctl(inst->snk_data.audio_client,
+                               AUDIO_IOCTL_FADE_DONE, NULL) != 0)
+            {
+                if ((rt_tick_get_millisecond() - start) >=
+                        A2DP_TRANSITION_TIMEOUT_MS)
+                {
+                    break;
+                }
+                rt_thread_mdelay(5);
+            }
+            audio_ioctl(inst->snk_data.audio_client,
+                        AUDIO_IOCTL_FLUSH, NULL);
+        }
+#endif
+#if BT_BAP_BROADCAST_SOURCE
+        g_remain = 0;
+        g_offset = 0;
+#endif
     }
 
     list_all_free(&(inst->snk_data.playlist));
@@ -1422,7 +1481,7 @@ void bt_avsnk_hdl_suspend_ind(bts2s_av_inst_data *inst, uint8_t con_idx)
     USER_TRACE(">> accept to suspend the av stream\n");
     inst->snk_data.reveive_start = 0;
 #if defined(AUDIO_USING_MANAGER) && defined(AUDIO_BT_AUDIO)
-    stop_audio_playback(inst);
+    stop_audio_playback_temporarily(inst);
 #endif
 
 #ifdef CFG_AV_AAC
@@ -1520,7 +1579,7 @@ void bt_avsnk_hdl_streamdata_ind(bts2s_av_inst_data *inst, uint8_t con_idx, BTS2
                 if (inst->snk_data.play_state  == TRUE)
                 {
 #if defined(AUDIO_USING_MANAGER) && defined(AUDIO_BT_AUDIO)
-                    stop_audio_playback(inst);
+                    stop_audio_playback_temporarily(inst);
 #endif
                 }
                 bfree(msg->data);

@@ -89,9 +89,9 @@ int8_t g_tel_max_vol = -2;
 int8_t g_tel_max_vol_level = 0;
 int8_t g_tel_vol_level[16] = {-36, -34, -32, -30, -28, -26, -24, -22, -20, -17, -14, -11, -10, -8, -6, -4};
 
-int8_t g_music_max_vol = -2;
+int8_t g_music_max_vol = 0;
 int8_t g_music_max_vol_level = 0;
-int8_t g_music_vol_level[16] = {-55, -34, -32, -30, -28, -26, -24, -22, -20, -17, -14, -11, -10, -8, -6, -4};
+int8_t g_music_vol_level[16] = {-55, -34, -32, -30, -28, -26, -24, -22, -20, -17, -14, -11, -9, -6, -3, 0};
 
 uint8_t  g_music_state = 10;
 uint8_t  g_voice_state = 10;

@@ -180,6 +180,12 @@ int audio_write(audio_client_t handle, uint8_t *data, uint32_t data_len);
 
 int audio_read(audio_client_t handle, uint8_t *buf, uint32_t buf_size);
 
+#define AUDIO_IOCTL_GET_QUEUED_TIME  1
+#define AUDIO_IOCTL_FADE_DONE        2
+#define AUDIO_IOCTL_FADE_OUT        (-1)
+#define AUDIO_IOCTL_FADE_IN         (-2)
+#define AUDIO_IOCTL_FLUSH           (-3)
+
 int audio_ioctl(audio_client_t handle, int cmd, void *parameter);
 
 int audio_close(audio_client_t handle);
