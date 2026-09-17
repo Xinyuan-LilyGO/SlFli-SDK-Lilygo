@@ -5,8 +5,10 @@ objs = []
 cwd = GetCurrentDir()
 
 for item in os.listdir(cwd):
-    script = os.path.join(cwd, item, 'SConscript')
-    if os.path.isfile(script):
-        objs += SConscript(script)
+    relative_script = os.path.join(item, 'SConscript')
+    source_script = os.path.join(cwd, relative_script)
+
+    if os.path.isfile(source_script):
+        objs += SConscript(relative_script)
 
 Return('objs')

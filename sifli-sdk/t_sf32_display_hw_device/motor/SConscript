@@ -7,15 +7,16 @@ drv2605_dir = os.path.join(cwd, 'drv2605')
 group = []
 
 if GetDepend('PKG_USING_AW86224'):
-    src = Glob(os.path.join(aw86224_dir, 'aw86224.c'))
+    # src = Glob(os.path.join(aw86224_dir, 'aw86224.c'))
+    src = Glob('aw86224/aw86224.c')    
     if GetDepend('AW86224_USING_RT_DEVICE'):
-        src += Glob(os.path.join(aw86224_dir, 'aw86224_rt_device.c'))
+        src += Glob(os.path.join(aw86224_dir, 'aw86224/aw86224_rt_device.c'))
     group += DefineGroup('AW86224', src,
                          depend = ['PKG_USING_AW86224'],
                          CPPPATH = [aw86224_dir])
 
 if GetDepend('PKG_USING_DRV2605'):
-    src = Glob(os.path.join(drv2605_dir, 'drv2605.c'))
+    src = Glob('drv2605/drv2605.c')
     group += DefineGroup('DRV2605', src,
                          depend = ['PKG_USING_DRV2605'],
                          CPPPATH = [drv2605_dir])
