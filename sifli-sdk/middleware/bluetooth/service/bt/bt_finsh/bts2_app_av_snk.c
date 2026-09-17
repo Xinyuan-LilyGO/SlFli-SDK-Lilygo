@@ -899,6 +899,16 @@ static void stop_audio_playback_temporarily(bts2s_av_inst_data *inst)
     list_all_free(&(inst->snk_data.playlist));
 
 }
+
+void bt_avsnk_release_audio(void)
+{
+    bts2s_av_inst_data *inst = bt_av_get_inst_data();
+
+    if (inst == NULL)
+        return;
+    inst->snk_data.reveive_start = 0;
+    stop_audio_playback(inst);
+}
 #endif
 
 /*----------------------------------------------------------------------------*
