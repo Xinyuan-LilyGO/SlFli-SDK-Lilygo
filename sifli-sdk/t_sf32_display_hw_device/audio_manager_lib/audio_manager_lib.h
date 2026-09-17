@@ -64,6 +64,17 @@ typedef struct
     uint32_t loop;  /*loop times. 0 : play one time. 1 ~ n : play 2 ~ n+1 times. */
 } mp3_ctrl_info_t;
 
+typedef enum
+{
+    AUDIO_MP3_EVENT_PLAY_TO_END = 0,
+    AUDIO_MP3_EVENT_PROGRESS,
+    AUDIO_MP3_EVENT_DURATION,
+} audio_mp3_event_t;
+
+typedef void (*audio_mp3_event_callback_t)(audio_mp3_event_t event,
+                                            uint32_t value,
+                                            void *user_data);
+
 typedef struct audio_manager_t
 {
     rt_device_t audcodec_dev;
@@ -90,7 +101,7 @@ typedef struct audio_manager_t
     char *file_path;
     int file_fd;
     rt_bool_t is_wav;       /* WAV format flag */
-    char mp3_playlist[MP3_PLAYLIST_MAX][MP3_FILENAME_MAX];
+    char (*mp3_playlist)[MP3_FILENAME_MAX];
     int mp3_playlist_count;
     int mp3_current_index;
     rt_bool_t mp3_paused;
@@ -131,5 +142,7 @@ void mp3_play_next(void);
 void mp3_play_prev(void);
 void mp3_play_shuffle_toggle(void);
 rt_bool_t mp3_play_shuffle_is_enabled(void);
+void mp3_set_event_callback(audio_mp3_event_callback_t callback,
+                            void *user_data);
 
 #endif

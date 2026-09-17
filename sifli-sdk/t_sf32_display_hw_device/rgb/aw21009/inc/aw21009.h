@@ -14,7 +14,13 @@ extern "C"
 
 // AW21009 默认I2C地址（AD0=GND, AD1=GND）
 // #define AW21009_I2C_ADDR         0x20
+#ifndef AW21009_I2C_BUS_NAME
+#define AW21009_I2C_BUS_NAME     "i2c1"
+#endif
+
+#ifndef AW21009_I2C_ADDR
 #define AW21009_I2C_ADDR         0x25
+#endif
 #define AW21009_CHIP_ID          0x12
 
 // 寄存器地址定义

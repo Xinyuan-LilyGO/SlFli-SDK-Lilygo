@@ -176,10 +176,10 @@ sgm41562b_handle_t sgm41562b_init(const char *i2c_bus_name, rt_base_t irq_pin)
     }
 
     LOG_I("SGM41562B device ID: 0x%02X", device_id);
-    if (device_id != SGM41562B_DEVICE_ID && device_id != SGM41562A_DEVICE_ID)
-    {
-        LOG_W("Unexpected device ID (expected 0x00 or 0x02)");
-    }
+    // if (device_id != SGM41562B_DEVICE_ID && device_id != SGM41562A_DEVICE_ID)
+    // {
+    //     LOG_W("Unexpected device ID (expected 0x00 or 0x02)");
+    // }
 
     /* Apply default configuration */
     default_config(_handle);

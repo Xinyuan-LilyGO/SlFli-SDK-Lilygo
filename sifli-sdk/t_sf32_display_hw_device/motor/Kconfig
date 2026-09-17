@@ -1,24 +1,79 @@
-config PKG_USING_AW86224
-    bool "Enable Motor AW86224 Driver"
-    default n
-    select PKG_USING_I2C
-    help
-        Enable support for AW86224 Motor.
+choice
+    prompt "Haptic motor driver"
+    default PKG_USING_AW86224 if FACTORY_HW_USING_KEYBOARD
+    default MOTOR_DRIVER_NONE
 
-    if  PKG_USING_AW86224
-    
-        config AW86224_I2C_BUS_NAME
-            string "I2C bus name"
-            default "i2c1"
+    config MOTOR_DRIVER_NONE
+        bool "None"
 
-        config AW86224_USING_RT_DEVICE
-            bool "Register AW86224 as an RT-Thread device"
-            default n
-            select PKG_USING_XL9555
+    config PKG_USING_AW86224
+        bool "AW86224"
+        select PKG_USING_I2C
+        select PKG_USING_XL9555
+        help
+            Enable support for the AW86224 haptic motor on the keyboard.
 
-        if AW86224_USING_RT_DEVICE
-            config AW86224_RT_DEVICE_NAME
-                string "RT-Thread device name"
-                default "aw86224"
-        endif
+    config PKG_USING_DRV2605
+        bool "DRV2605"
+        select PKG_USING_I2C
+        select PKG_USING_XL9555
+        help
+            Enable support for the DRV2605 haptic motor on the joypad.
+
+endchoice
+
+if PKG_USING_AW86224
+    config AW86224_I2C_BUS_NAME
+        string "I2C bus name"
+        default "i2c1"
+
+    config AW86224_USING_RT_DEVICE
+        bool "Register AW86224 as an RT-Thread device"
+        default y if FACTORY_HW_USING_KEYBOARD
+        default n
+
+    if AW86224_USING_RT_DEVICE
+        config AW86224_RT_DEVICE_NAME
+            string "RT-Thread device name"
+            default "aw86224"
     endif
+endif
+
+if PKG_USING_DRV2605
+    config DRV2605_I2C_BUS_NAME
+        string "I2C bus name"
+        default "i2c1"
+
+    config DRV2605_I2C_MAX_HZ
+        int "I2C maximum frequency"
+        range 10000 400000
+        default 400000
+        help
+            Use 100 kHz by default for initial hardware communication.
+
+    config DRV2605_ENABLE_PIN
+        int "XL9555 M_EN linear pin index"
+        range 0 15
+        default 11
+        help
+            Joypad M_EN is connected to XL9555 P13. P13 maps to index 11.
+
+    choice
+        prompt "Actuator type"
+        default DRV2605_USE_ERM
+
+        config DRV2605_USE_ERM
+            bool "ERM (DC eccentric rotating mass)"
+
+        config DRV2605_USE_LRA
+            bool "LRA (linear resonant actuator)"
+    endchoice
+
+    config DRV2605_LIBRARY
+        int "ROM waveform library"
+        range 1 7
+        default 6 if DRV2605_USE_LRA
+        default 1
+        help
+            DRV2605 ROM library: 1-5 and 7 are ERM, 6 is LRA.
+endif

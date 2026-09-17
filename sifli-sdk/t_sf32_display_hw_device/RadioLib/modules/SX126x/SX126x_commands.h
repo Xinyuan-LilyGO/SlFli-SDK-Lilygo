@@ -1,0 +1,53 @@
+#ifndef RADIOLIB_SX126X_COMMANDS_H
+#define RADIOLIB_SX126X_COMMANDS_H
+
+#define SX126X_CMD_SET_SLEEP              0x84
+#define SX126X_CMD_SET_STANDBY            0x80
+#define SX126X_CMD_SET_TX                 0x83
+#define SX126X_CMD_SET_RX                 0x82
+#define SX126X_CMD_SET_CAD                0xC5
+#define SX126X_CMD_SET_PACKET_TYPE        0x8A
+#define SX126X_CMD_SET_RF_FREQUENCY       0x86
+#define SX126X_CMD_SET_TX_PARAMS          0x8E
+#define SX126X_CMD_SET_PA_CONFIG          0x95
+#define SX126X_CMD_SET_BUFFER_BASE        0x8F
+#define SX126X_CMD_SET_MODULATION_PARAMS  0x8B
+#define SX126X_CMD_SET_PACKET_PARAMS      0x8C
+#define SX126X_CMD_SET_CAD_PARAMS         0x88
+#define SX126X_CMD_SET_DIO_IRQ_PARAMS     0x08
+#define SX126X_CMD_GET_IRQ_STATUS         0x12
+#define SX126X_CMD_CLEAR_IRQ_STATUS       0x02
+#define SX126X_CMD_GET_RX_BUFFER_STATUS   0x13
+#define SX126X_CMD_GET_PACKET_STATUS      0x14
+#define SX126X_CMD_GET_RSSI_INST          0x15
+#define SX126X_CMD_GET_STATUS             0xC0
+#define SX126X_CMD_SET_REGULATOR_MODE     0x96
+#define SX126X_CMD_CALIBRATE              0x89
+#define SX126X_CMD_CALIBRATE_IMAGE        0x98
+#define SX126X_CMD_SET_DIO2_RF_SWITCH     0x9D
+#define SX126X_CMD_SET_DIO3_TCXO          0x97
+#define SX126X_CMD_SET_RX_TX_FALLBACK     0x93
+#define SX126X_CMD_CLEAR_DEVICE_ERRORS    0x07
+
+#define SX126X_PACKET_TYPE_LORA           0x01
+#define SX126X_STANDBY_RC                 0x00
+#define SX126X_REGULATOR_LDO              0x00
+#define SX126X_REGULATOR_DCDC             0x01
+
+#define SX126X_IRQ_TX_DONE                0x0001
+#define SX126X_IRQ_RX_DONE                0x0002
+#define SX126X_IRQ_PREAMBLE_DETECTED      0x0004
+#define SX126X_IRQ_HEADER_VALID           0x0010
+#define SX126X_IRQ_HEADER_ERROR           0x0020
+#define SX126X_IRQ_CRC_ERROR              0x0040
+#define SX126X_IRQ_CAD_DONE               0x0080
+#define SX126X_IRQ_CAD_DETECTED           0x0100
+#define SX126X_IRQ_TIMEOUT                0x0200
+#define SX126X_IRQ_ALL                    0x03FF
+
+#define SX126X_REG_LORA_SYNC_WORD_MSB     0x0740
+#define SX126X_REG_TX_CLAMP_CONFIG        0x08D8
+#define SX126X_REG_OCP_CONFIGURATION      0x08E7
+#define SX126X_REG_FREQUENCY_ERROR_MSB    0x076B
+
+#endif

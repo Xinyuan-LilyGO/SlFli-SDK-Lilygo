@@ -1,0 +1,28 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+src = Glob(os.path.join(cwd, 'src', '*.c'))
+inc = [os.path.join(cwd, 'inc')]
+
+if GetDepend('RADIOLIB_USING_SX1262'):
+    src += Glob(os.path.join(cwd, 'modules', 'SX126x', '*.c'))
+    inc += [os.path.join(cwd, 'modules', 'SX126x')]
+
+if GetDepend('RADIOLIB_USING_LR1121'):
+    src += Glob(os.path.join(cwd, 'modules', 'LR11x0', '*.c'))
+    inc += [os.path.join(cwd, 'modules', 'LR11x0')]
+
+if GetDepend('RADIOLIB_USING_LR2021'):
+    src += Glob(os.path.join(cwd, 'modules', 'LR20xx', '*.c'))
+    inc += [os.path.join(cwd, 'modules', 'LR20xx')]
+
+if GetDepend('RADIOLIB_USING_SX1276'):
+    src += Glob(os.path.join(cwd, 'modules', 'SX127x', '*.c'))
+    inc += [os.path.join(cwd, 'modules', 'SX127x')]
+
+if GetDepend('RADIOLIB_USING_SAMPLES'):
+    src += Glob(os.path.join(cwd, 'samples', '*.c'))
+
+group = DefineGroup('RadioLib', src, depend=['PKG_USING_RADIOLIB'], CPPPATH=inc)
+Return('group')

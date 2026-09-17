@@ -4,6 +4,7 @@
  */
 #include "xl9555.h"
 #include "ulog.h"
+#include <stdlib.h>
 #ifdef RT_USING_PM
     #include <drivers/pm.h>
 #endif
@@ -27,21 +28,20 @@ static rt_err_t xl9555_irq_init(void);
 static void xl9555_irq_deinit(void);
 #endif
 
-/* 内部函数：向指定寄存器写入 16 位数据 */
-static rt_err_t xl9555_write_reg(struct xl9555_device *dev, rt_uint8_t reg,
-                                 rt_uint16_t data)
+/* Access one port register per I2C transaction. */
+static rt_err_t xl9555_write_reg8(struct xl9555_device *dev, rt_uint8_t reg,
+                                  rt_uint8_t data)
 {
-    rt_uint8_t send_buf[3];
+    rt_uint8_t send_buf[2];
     struct rt_i2c_msg msgs;
 
-    send_buf[0] = reg;                /* 命令字节：寄存器地址 */
-    send_buf[1] = data & 0xFF;        /* Port 0 (低8位) */
-    send_buf[2] = (data >> 8) & 0xFF; /* Port 1 (高8位) */
+    send_buf[0] = reg;
+    send_buf[1] = data;
 
     msgs.addr = dev->dev_addr;
     msgs.flags = RT_I2C_WR;
     msgs.buf = send_buf;
-    msgs.len = 3;
+    msgs.len = 2;
 
     if (rt_i2c_transfer(dev->i2c_bus, &msgs, 1) == 1)
         return RT_EOK;
@@ -49,12 +49,12 @@ static rt_err_t xl9555_write_reg(struct xl9555_device *dev, rt_uint8_t reg,
         return -RT_ERROR;
 }
 
-/* 内部函数：从指定寄存器读取 16 位数据 */
-static rt_err_t xl9555_read_reg(struct xl9555_device *dev, rt_uint8_t reg,
-                                rt_uint16_t *data)
+/* Read one port register per I2C transaction. */
+static rt_err_t xl9555_read_reg8(struct xl9555_device *dev, rt_uint8_t reg,
+                                 rt_uint8_t *data)
 {
     struct rt_i2c_msg msgs[2];
-    rt_uint8_t recv_buf[2];
+    rt_uint8_t recv_buf[1];
 
     /* 步骤1: 发送寄存器地址 */
     msgs[0].addr = dev->dev_addr;
@@ -66,11 +66,11 @@ static rt_err_t xl9555_read_reg(struct xl9555_device *dev, rt_uint8_t reg,
     msgs[1].addr = dev->dev_addr;
     msgs[1].flags = RT_I2C_RD;
     msgs[1].buf = recv_buf;
-    msgs[1].len = 2;
+    msgs[1].len = 1;
 
     if (rt_i2c_transfer(dev->i2c_bus, msgs, 2) == 2)
     {
-        *data = (recv_buf[1] << 8) | recv_buf[0];
+        *data = recv_buf[0];
         return RT_EOK;
     }
     else
@@ -78,6 +78,38 @@ static rt_err_t xl9555_read_reg(struct xl9555_device *dev, rt_uint8_t reg,
         return -RT_ERROR;
     }
 }
+
+static rt_err_t xl9555_write_ports(struct xl9555_device *dev,
+                                   rt_uint8_t port0_reg,
+                                   rt_uint16_t data)
+{
+    rt_err_t result;
+
+    result = xl9555_write_reg8(dev, port0_reg, (rt_uint8_t)data);
+    if (result != RT_EOK)
+        return result;
+    return xl9555_write_reg8(dev, (rt_uint8_t)(port0_reg + 1U),
+                             (rt_uint8_t)(data >> 8));
+}
+
+#if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
+static rt_err_t xl9555_read_ports(struct xl9555_device *dev,
+                                  rt_uint8_t port0_reg,
+                                  rt_uint16_t *data)
+{
+    rt_uint8_t port0;
+    rt_uint8_t port1;
+    rt_err_t result;
+
+    result = xl9555_read_reg8(dev, port0_reg, &port0);
+    if (result != RT_EOK)
+        return result;
+    result = xl9555_read_reg8(dev, (rt_uint8_t)(port0_reg + 1U), &port1);
+    if (result == RT_EOK)
+        *data = (rt_uint16_t)(((rt_uint16_t)port1 << 8) | port0);
+    return result;
+}
+#endif
 
 #if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
 
@@ -123,8 +155,8 @@ static void xl9555_irq_thread_entry(void *parameter)
         if (!xl9555_irq_enabled)
             continue;
 
-        if (xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
-                            &input_state) == RT_EOK)
+        if (xl9555_read_ports(&xl9555_dev, XL9555_INPUT_PORT_0,
+                              &input_state) == RT_EOK)
         {
             changed_mask = (input_state ^ xl9555_input_cache) &
                            xl9555_dev.config_cache;
@@ -193,8 +225,8 @@ static rt_err_t xl9555_irq_init(void)
         return -RT_ENOMEM;
     }
 
-    result = xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
-                             &xl9555_input_cache);
+    result = xl9555_read_ports(&xl9555_dev, XL9555_INPUT_PORT_0,
+                               &xl9555_input_cache);
     if (result != RT_EOK)
     {
         xl9555_irq_deinit();
@@ -269,6 +301,8 @@ static const struct rt_device_pm_ops xl9555_pm_op = {
 /* -------------------- 用户 API 接口 -------------------- */
 rt_err_t xl9555_init()
 {
+    rt_err_t result;
+
     if (xl9555_dev.i2c_bus != RT_NULL)
         return RT_EOK;
 
@@ -297,21 +331,27 @@ rt_err_t xl9555_init()
     rt_i2c_configure(xl9555_dev.i2c_bus, &configuration);
 
     /* 初始化缓存：默认所有引脚为输入模式，上电后默认值即为全1 */
-    xl9555_dev.config_cache = 0x0000;
+    xl9555_dev.config_cache = 0xFFFF;
     xl9555_dev.output_cache = 0x0000;
 
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
-                     xl9555_dev.output_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_1, xl9555_dev.config_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_1,
-                     xl9555_dev.output_cache);
+    result = xl9555_write_ports(&xl9555_dev, XL9555_OUTPUT_PORT_0,
+                                xl9555_dev.output_cache);
+    if (result == RT_EOK)
+        result = xl9555_write_ports(&xl9555_dev, XL9555_CONFIG_0,
+                                    xl9555_dev.config_cache);
+    if (result != RT_EOK)
+    {
+        LOG_E("initialize XL9555 ports failed: %d", result);
+        rt_device_close((rt_device_t)xl9555_dev.i2c_bus);
+        xl9555_dev.i2c_bus = RT_NULL;
+        return result;
+    }
 #ifdef RT_USING_PM
     rt_pm_device_register(NULL, &xl9555_pm_op);
 #endif
 
 #if defined(XL9555_IRQ_PIN) && (XL9555_IRQ_PIN >= 0)
-    rt_err_t result = xl9555_irq_init();
+    result = xl9555_irq_init();
     if (result != RT_EOK)
     {
         LOG_E("initialize IRQ pin %d failed: %d", XL9555_IRQ_PIN, result);
@@ -340,17 +380,27 @@ rt_err_t xl9555_deinit(void)
 #ifdef RT_USING_PM
 static rt_err_t xl9555_restore(void)
 {
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
-                     xl9555_dev.output_cache);
-    return RT_EOK;
+    rt_err_t result;
+
+    result = xl9555_write_ports(&xl9555_dev, XL9555_OUTPUT_PORT_0,
+                                xl9555_dev.output_cache);
+    if (result != RT_EOK)
+        return result;
+    return xl9555_write_ports(&xl9555_dev, XL9555_CONFIG_0,
+                              xl9555_dev.config_cache);
 }
 #endif
 
 /* 设置某个引脚方向 (pin: 0-15, mode: 0=输出, 1=输入) */
 void xl9555_pin_mode(rt_uint8_t pin, rt_uint8_t mode)
 {
-    rt_uint16_t mask = (1 << pin);
+    rt_uint16_t mask;
+    rt_uint8_t reg;
+    rt_uint8_t value;
+
+    if (pin >= 16U)
+        return;
+    mask = (rt_uint16_t)(1U << pin);
 
     if (mode == 0) /* 输出 */
     {
@@ -361,13 +411,21 @@ void xl9555_pin_mode(rt_uint8_t pin, rt_uint8_t mode)
         xl9555_dev.config_cache |= mask;
     }
 
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
+    reg = (rt_uint8_t)(XL9555_CONFIG_0 + (pin / 8U));
+    value = (rt_uint8_t)(xl9555_dev.config_cache >> ((pin / 8U) * 8U));
+    (void)xl9555_write_reg8(&xl9555_dev, reg, value);
 }
 
 /* 写入数字值 (pin: 0-15, val: 0/1) */
 void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val)
 {
-    rt_uint16_t mask = (1 << pin);
+    rt_uint16_t mask;
+    rt_uint8_t reg;
+    rt_uint8_t value;
+
+    if (pin >= 16U)
+        return;
+    mask = (rt_uint16_t)(1U << pin);
 
     if (val)
         xl9555_dev.output_cache |= mask;
@@ -376,8 +434,9 @@ void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val)
 #ifdef RT_USING_PM
     rt_pm_request(PM_SLEEP_MODE_IDLE);
 #endif
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
-                     xl9555_dev.output_cache);
+    reg = (rt_uint8_t)(XL9555_OUTPUT_PORT_0 + (pin / 8U));
+    value = (rt_uint8_t)(xl9555_dev.output_cache >> ((pin / 8U) * 8U));
+    (void)xl9555_write_reg8(&xl9555_dev, reg, value);
 #ifdef RT_USING_PM
     rt_pm_release(PM_SLEEP_MODE_IDLE);
 #endif
@@ -386,10 +445,16 @@ void xl9555_digital_write(rt_uint8_t pin, rt_uint8_t val)
 /* 读取数字值 (pin: 0-15) */
 rt_uint8_t xl9555_digital_read(rt_uint8_t pin)
 {
-    rt_uint16_t val;
-    rt_uint16_t mask = (1 << pin);
+    rt_uint8_t val;
+    rt_uint8_t mask;
+    rt_uint8_t reg;
 
-    if (xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0, &val) == RT_EOK)
+    if (pin >= 16U)
+        return 0U;
+    reg = (rt_uint8_t)(XL9555_INPUT_PORT_0 + (pin / 8U));
+    mask = (rt_uint8_t)(1U << (pin % 8U));
+
+    if (xl9555_read_reg8(&xl9555_dev, reg, &val) == RT_EOK)
     {
         return (val & mask) ? 1 : 0;
     }
@@ -425,8 +490,8 @@ rt_err_t xl9555_irq_enable(rt_bool_t enabled)
         return rt_pin_irq_enable(XL9555_IRQ_PIN, PIN_IRQ_DISABLE);
     }
 
-    result = xl9555_read_reg(&xl9555_dev, XL9555_INPUT_PORT_0,
-                             &xl9555_input_cache);
+    result = xl9555_read_ports(&xl9555_dev, XL9555_INPUT_PORT_0,
+                               &xl9555_input_cache);
     if (result != RT_EOK)
         return result;
 
@@ -451,30 +516,52 @@ rt_uint8_t xl9555_all_digital_wirte(rt_bool_t val)
         xl9555_dev.output_cache = 0x0000;
     }
 
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_0, xl9555_dev.config_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_0,
-                     xl9555_dev.output_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_CONFIG_1, xl9555_dev.config_cache);
-    xl9555_write_reg(&xl9555_dev, XL9555_OUTPUT_PORT_1,
-                     xl9555_dev.output_cache);
+    (void)xl9555_write_ports(&xl9555_dev, XL9555_OUTPUT_PORT_0,
+                             xl9555_dev.output_cache);
+    (void)xl9555_write_ports(&xl9555_dev, XL9555_CONFIG_0,
+                             xl9555_dev.config_cache);
     return RT_EOK;
 }
 
 /* 测试示例：在 msh shell 中调用 */
-static void xl9555_test(void)
+static int xl9555_test(int argc, char **argv)
 {
-    /* 假设设备挂载在 i2c2 总线上，A0/A1/A2 接地，地址 0x20 */
-    xl9555_init();
+    int pin;
+    int level = 1;
+    rt_uint8_t state;
+    rt_err_t result;
 
-    /* 配置 P0_0 为输出，P0_1 为输入 */
-    xl9555_pin_mode(0, 0); // 输出
-    xl9555_pin_mode(1, 1); // 输入
+    if (argc < 2 || argc > 3)
+    {
+        rt_kprintf("Usage: xl9555_test <pin 0-15> [level 0|1]\n");
+        rt_kprintf("Example: xl9555_test 11 1  # P1_3/M_EN high\n");
+        return -RT_EINVAL;
+    }
 
-    /* 写 P0_0 高电平 */
-    xl9555_digital_write(0, 1);
+    pin = atoi(argv[1]);
+    if (argc == 3)
+        level = atoi(argv[2]);
+    if (pin < 0 || pin > 15 || (level != 0 && level != 1))
+    {
+        rt_kprintf("Invalid pin or level\n");
+        return -RT_EINVAL;
+    }
 
-    /* 读 P0_1 状态 */
-    rt_uint8_t state = xl9555_digital_read(1);
-    rt_kprintf("P0_1 state: %d\n", state);
+    result = xl9555_init();
+    if (result != RT_EOK)
+    {
+        rt_kprintf("XL9555 init failed: %d\n", result);
+        return result;
+    }
+
+    /* Preload the output latch before enabling output to avoid a glitch. */
+    xl9555_digital_write((rt_uint8_t)pin, (rt_uint8_t)level);
+    xl9555_pin_mode((rt_uint8_t)pin, XL9555_PIN_OUTPUT);
+    rt_thread_mdelay(1U);
+    state = xl9555_digital_read((rt_uint8_t)pin);
+
+    rt_kprintf("XL9555 P%d_%d (index %d): set=%d read=%u\n",
+               pin / 8, pin % 8, pin, level, (unsigned int)state);
+    return (state == (rt_uint8_t)level) ? RT_EOK : -RT_ERROR;
 }
 MSH_CMD_EXPORT(xl9555_test, xl9555 gpio expander test);

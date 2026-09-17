@@ -21,10 +21,13 @@ static uint8_t sd_play_data[AUDIO_BUF_SIZE / 2];
 uint32_t g_tmp_pos = 0;
 
 audio_manager_t audio;
+static audio_mp3_event_callback_t mp3_event_callback;
+static void *mp3_event_user_data;
 
 #define AUDIO_RECORD_DISCARD_FRAMES 24
 #define AUDIO_RECORD_MIC_GAIN_DB    10
 #define AUDIO_RECORD_DIRECT_SD_WRITE 0
+#define MP3_DECODE_THREAD_PRIORITY  (RT_THREAD_PRIORITY_HIGH - 1U)
 
 #define AUDIO_LOG_DEBUG 1
 #ifdef AUDIO_LOG_DEBUG
@@ -1132,6 +1135,11 @@ void mp3_playlist_scan(const char *dir)
     struct dirent *ent;
     int count = 0;
 
+    if (audio.mp3_playlist)
+    {
+        rt_free(audio.mp3_playlist);
+        audio.mp3_playlist = NULL;
+    }
     audio.mp3_playlist_count = 0;
     audio.mp3_current_index = -1;
 
@@ -1142,6 +1150,15 @@ void mp3_playlist_scan(const char *dir)
     if (d == NULL)
     {
         AUDIO_LOG_DEBUG("Cannot open dir %s\n", dir);
+        return;
+    }
+
+    audio.mp3_playlist = rt_calloc(MP3_PLAYLIST_MAX,
+                                   sizeof(*audio.mp3_playlist));
+    if (audio.mp3_playlist == NULL)
+    {
+        closedir(d);
+        AUDIO_LOG_DEBUG("Allocate MP3 playlist failed\n");
         return;
     }
 
@@ -1271,6 +1288,13 @@ void mp3_play_start(const char *file_name, uint32_t loop)
     send_msg_to_mp3_proc(&info);
 }
 
+void mp3_set_event_callback(audio_mp3_event_callback_t callback,
+                            void *user_data)
+{
+    mp3_event_callback = callback;
+    mp3_event_user_data = user_data;
+}
+
 static int mp3_play_callback_func(audio_server_callback_cmt_t cmd,
                                   void *callback_userdata, uint32_t reserved)
 {
@@ -1278,11 +1302,19 @@ static int mp3_play_callback_func(audio_server_callback_cmt_t cmd,
     switch (cmd)
     {
     case as_callback_cmd_play_to_end:
-        /* Auto play next song from playlist */
-        if (audio.mp3_playlist_count > 0)
+        if (mp3_event_callback)
+            mp3_event_callback(AUDIO_MP3_EVENT_PLAY_TO_END, 0,
+                               mp3_event_user_data);
+        else if (audio.mp3_playlist_count > 0)
             mp3_play_next();
         else
             mp3_play_stop();
+        break;
+
+    case as_callback_cmd_user:
+        if (mp3_event_callback)
+            mp3_event_callback(AUDIO_MP3_EVENT_PROGRESS, reserved,
+                               mp3_event_user_data);
         break;
 
     default:
@@ -1304,6 +1336,9 @@ static rt_err_t mp3_switch_to_file(const char *filename)
                           MP3CTRL_IOCTRL_CHANGE_FILE,
                           (uint32_t)&parameter) == 0)
         {
+            if (audio.mp3_paused)
+                audio_pa_open();
+            audio.mp3_paused = false;
             return RT_EOK;
         }
         AUDIO_LOG_DEBUG("MP3 seamless switch failed, reopen: %s\n",
@@ -1324,6 +1359,8 @@ static rt_err_t mp3_switch_to_file(const char *filename)
         AUDIO_LOG_DEBUG("mp3ctrl_open failed: %s\n", filename);
         return -RT_ERROR;
     }
+    mp3ctrl_ioctl(audio.mp3_handle, MP3CTRL_IOCTRL_THREAD_PRIORITY,
+                  MP3_DECODE_THREAD_PRIORITY);
     if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
     {
         AUDIO_LOG_DEBUG("mp3ctrl_play failed: %s\n", filename);
@@ -1353,36 +1390,18 @@ void mp3_proc_thread_entry(void *params)
         case CMD_MP3_PALY:
             audio.mp3_paused = false;
             audio.mp3_current_index = -1;
-            if (audio.mp3_handle)
+            if (mp3_switch_to_file(msg.param.filename) != RT_EOK)
             {
-                /* Close fistly if mp3 is playing. */
-                audio_pa_close();
-                mp3ctrl_close(audio.mp3_handle);
-            }
-            audio.mp3_handle = mp3ctrl_open(
-                AUDIO_TYPE_LOCAL_MUSIC, /* audio type, see enum audio_type_t. */
-                msg.param.filename,     /* file path */
-                mp3_play_callback_func, /* play callback function. */
-                NULL);
-            if (audio.mp3_handle == NULL)
-            {
-                AUDIO_LOG_DEBUG("mp3ctrl_open failed:%s\n", msg.param.filename);
+                AUDIO_LOG_DEBUG("MP3 play failed:%s\n", msg.param.filename);
                 break;
             }
-            /* Set loop times. */
             mp3ctrl_ioctl(
-                audio.mp3_handle, /* handle returned by mp3ctrl_open. */
-                0,                /* cmd = 0, set loop times. */
-                msg.loop);        /* loop times. */
-            /* To play. */
-            if (mp3ctrl_play(audio.mp3_handle) != RT_EOK)
+                audio.mp3_handle, MP3CTRL_IOCTRL_LOOP_TIMES, msg.loop);
+            if (mp3_event_callback)
             {
-                AUDIO_LOG_DEBUG("mp3ctrl_play failed:%s\n", msg.param.filename);
-            }
-            else
-            {
-                rt_thread_mdelay(30);
-                audio_pa_open();
+                mp3_event_callback(AUDIO_MP3_EVENT_DURATION,
+                                   mp3ctrl_get_duration(audio.mp3_handle),
+                                   mp3_event_user_data);
             }
             break;
 

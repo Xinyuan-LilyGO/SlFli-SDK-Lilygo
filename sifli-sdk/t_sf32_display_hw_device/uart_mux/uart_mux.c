@@ -16,7 +16,7 @@ static struct serial_configure mux_config = RT_SERIAL_CONFIG_DEFAULT;
 static uart_mux_device_t current_device = UART_MUX_DEVICE_NONE;
 
 static rt_thread_t rx_thread = RT_NULL;
-#define RX_THREAD_STACK_SIZE 2048
+#define RX_THREAD_STACK_SIZE 1024
 #define RX_THREAD_PRIORITY RT_THREAD_PRIORITY_MIDDLE
 #define RX_BUF_SIZE 256
 #define UART_RX_BUFSZ 2048
@@ -190,7 +190,7 @@ int uart_mux_switch_to(uart_mux_device_t dev, uint32_t baudrate)
         mux_config.baud_rate == baudrate)
     {
         rt_mutex_release(&mux_mutex);
-        MUX_LOG("Already active with same baudrate\n");
+        // MUX_LOG("Already active with same baudrate\n");
         return RT_EOK;
     }
 

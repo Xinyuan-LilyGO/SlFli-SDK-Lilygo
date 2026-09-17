@@ -15,10 +15,15 @@ static uint8_t payload_len = 255; // 1~255
 lora_rx_info_t lora_rx_info;
 static void (*lora_rx_callback)(lora_rx_info_t *info) = RT_NULL;
 
-static bool lora_chip_initialized;
+static bool lora_init_attempted;
+static rt_err_t lora_init_result = -RT_ERROR;
 static RadioEvents_t RadioEvents;
 static struct rt_event radio_event;
 static rt_thread_t lora_radio_thread = RT_NULL;
+#ifdef RT_USING_PM
+static struct rt_mutex radio_pm_lock;
+static rt_bool_t radio_pm_requested;
+#endif
 static radio_config_t radio_paras = {
     .modem = MODEM_LORA,
     .tx_frequency = RF_FREQUENCY,
@@ -44,21 +49,43 @@ static void OnRxTimeout(void);
 static void OnRxError(void);
 static void lora_radio_thread_entry(void *parameter);
 
+#ifdef RT_USING_PM
+static void lora_pm_request_idle(void)
+{
+    rt_mutex_take(&radio_pm_lock, RT_WAITING_FOREVER);
+    if (!radio_pm_requested)
+    {
+        rt_pm_request(PM_SLEEP_MODE_IDLE);
+        radio_pm_requested = RT_TRUE;
+    }
+    rt_mutex_release(&radio_pm_lock);
+}
+
+static void lora_pm_release_idle(void)
+{
+    rt_mutex_take(&radio_pm_lock, RT_WAITING_FOREVER);
+    if (radio_pm_requested)
+    {
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
+        radio_pm_requested = RT_FALSE;
+    }
+    rt_mutex_release(&radio_pm_lock);
+}
+#endif
+
 int lora_app_init(void)
 {
-    int ret;
+    rt_err_t result;
+
+    if (lora_init_attempted)
+        return lora_init_result;
+    lora_init_attempted = true;
+
     rt_event_init(&radio_event, "ev_lora_test", RT_IPC_FLAG_FIFO);
-    lora_radio_thread =
-        rt_thread_create("lora-radio-test", lora_radio_thread_entry, RT_NULL,
-                         2048, RT_THREAD_PRIORITY_HIGH, 10);
-    if (lora_radio_thread != RT_NULL)
-    {
-        rt_thread_startup(lora_radio_thread);
-    }
-    else
-    {
-        return -RT_ERROR;
-    }
+#ifdef RT_USING_PM
+    rt_mutex_init(&radio_pm_lock, "lora_pm", RT_IPC_FLAG_FIFO);
+    radio_pm_requested = RT_FALSE;
+#endif
 
     RadioEvents.TxDone = OnTxDone;
     RadioEvents.RxDone = OnRxDone;
@@ -66,37 +93,66 @@ int lora_app_init(void)
     RadioEvents.RxTimeout = OnRxTimeout;
     RadioEvents.RxError = OnRxError;
 
-    ret = Radio.Init(&RadioEvents);
-    if (ret)
+    if (!Radio.Init(&RadioEvents))
     {
-        lora_chip_initialized = true;
-    }
-    else
-    {
-        return -RT_ERROR;
+#ifdef RT_USING_PM
+        rt_mutex_detach(&radio_pm_lock);
+#endif
+        rt_event_detach(&radio_event);
+        return lora_init_result;
     }
 
+    lora_radio_thread =
+        rt_thread_create("lora-radio", lora_radio_thread_entry, RT_NULL,
+                         2048, RT_THREAD_PRIORITY_HIGH, 10);
+    if (lora_radio_thread == RT_NULL)
+    {
+        Radio.Sleep();
+        return lora_init_result;
+    }
+
+    result = rt_thread_startup(lora_radio_thread);
+    if (result != RT_EOK)
+    {
+        rt_thread_delete(lora_radio_thread);
+        lora_radio_thread = RT_NULL;
+        Radio.Sleep();
+        lora_init_result = result;
+        return lora_init_result;
+    }
+
+    if (Radio.Check() == 0U)
+    {
+        Radio.Sleep();
+        return lora_init_result;
+    }
+
+    lora_init_result = RT_EOK;
     Radio.Standby();
     Radio.Sleep();
-    return RT_EOK;
+    return lora_init_result;
 }
 
 static void OnTxDone(void)
 {
     Radio.Sleep();
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
     rt_event_send(&radio_event, EV_RADIO_TX_DONE);
 }
 
 static void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
+    uint16_t copy_size = size;
+
     Radio.Sleep();
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
-    lora_rx_info.data_len = size;
+    if (copy_size > sizeof(lora_rx_info.data))
+        copy_size = sizeof(lora_rx_info.data);
+    lora_rx_info.data_len = copy_size;
     rt_memcpy(lora_rx_info.data, payload, lora_rx_info.data_len);
     lora_rx_info.rssi = rssi;
     lora_rx_info.snr = snr;
@@ -107,7 +163,7 @@ static void OnTxTimeout(void)
 {
     Radio.Sleep(); // 进入睡眠 BUSY拉高
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
     rt_event_send(&radio_event, EV_RADIO_TX_TIMEOUT);
 }
@@ -116,7 +172,7 @@ static void OnRxTimeout(void)
 {
     Radio.Sleep();
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
     rt_event_send(&radio_event, EV_RADIO_RX_TIMEOUT);
 }
@@ -125,7 +181,7 @@ static void OnRxError(void)
 {
     Radio.Sleep();
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
     rt_event_send(&radio_event, EV_RADIO_RX_ERROR);
 }
@@ -143,6 +199,8 @@ void init_tx_rx_timeout(void)
 static void lora_radio_thread_entry(void *parameter)
 {
     rt_uint32_t ev = 0;
+
+    (void)parameter;
     while (1)
     {
         if (rt_event_recv(&radio_event, EV_RADIO_ALL,
@@ -166,15 +224,18 @@ static void lora_radio_thread_entry(void *parameter)
 
                     Radio.SetTxConfig(
                         MODEM_LORA, radio_paras.txpower, 0, radio_paras.bw,
-                        radio_paras.sf, radio_paras.cr, LORA_PREAMBLE_LENGTH,
-                        LORA_FIX_LENGTH_PAYLOAD_ON_DISABLE, true, 0, 0,
+                        radio_paras.sf, radio_paras.cr,
+                        radio_paras.lora_preamble_len,
+                        LORA_FIX_LENGTH_PAYLOAD_ON_DISABLE,
+                        radio_paras.crc_on, 0, 0,
                         radio_paras.iq_inversion, tx_timeout);
 
                     Radio.SetRxConfig(
                         MODEM_LORA, radio_paras.bw, radio_paras.sf,
                         radio_paras.cr, 0, LORA_PREAMBLE_LENGTH,
                         LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON_DISABLE,
-                        0, true, 0, 0, radio_paras.iq_inversion, true);
+                        0, radio_paras.crc_on, 0, 0,
+                        radio_paras.iq_inversion, true);
                 }
                 else
                 {
@@ -223,7 +284,7 @@ static void lora_radio_thread_entry(void *parameter)
 void radio_rx(void)
 {
 #ifdef RT_USING_PM
-    rt_pm_request(PM_SLEEP_MODE_IDLE);
+    lora_pm_request_idle();
 #endif
     rt_uint32_t timeout = 0;
     rt_memset(&lora_rx_info, 0, sizeof(lora_rx_info_t));
@@ -245,7 +306,8 @@ void radio_rx(void)
 
 void get_radio_rx_info(lora_rx_info_t *rx_info)
 {
-    *rx_info = lora_rx_info;
+    if (rx_info != RT_NULL)
+        *rx_info = lora_rx_info;
 }
 
 void radio_set_rx_boost(bool boost)
@@ -255,9 +317,16 @@ void radio_set_rx_boost(bool boost)
 
 void radio_tx(uint8_t *data, uint16_t size)
 {
+    if (data == RT_NULL || size == 0U || size > 255U)
+    {
+        LORA_LOG("invalid tx size: %u\n", size);
+        return;
+    }
+
 #ifdef RT_USING_PM
-    rt_pm_request(PM_SLEEP_MODE_IDLE);
+    lora_pm_request_idle();
 #endif
+    payload_len = (uint8_t)size;
     init_tx_rx_timeout();
     Radio.SetChannel(radio_paras.tx_frequency);
     radio_paras.rx_frequency =
@@ -269,7 +338,8 @@ void radio_tx(uint8_t *data, uint16_t size)
         Radio.SetTxConfig(MODEM_LORA, radio_paras.txpower, 0, radio_paras.bw,
                           radio_paras.sf, radio_paras.cr,
                           radio_paras.lora_preamble_len,
-                          radio_paras.iq_inversion, radio_paras.crc_on, 0, 0,
+                          LORA_FIX_LENGTH_PAYLOAD_ON_DISABLE,
+                          radio_paras.crc_on, 0, 0,
                           radio_paras.iq_inversion, tx_timeout);
     }
     else
@@ -279,7 +349,7 @@ void radio_tx(uint8_t *data, uint16_t size)
                           FSK_FIX_LENGTH_PAYLOAD_ON, radio_paras.crc_on, 0, 0,
                           0, 3000);
     }
-    LORA_LOG("tx(%d):%s\n", size, data);
+    LORA_LOG("tx(%u bytes)\n", size);
 
     Radio.Send(data, size);
 }
@@ -287,7 +357,7 @@ void radio_tx(uint8_t *data, uint16_t size)
 void radio_sleep(void)
 {
 #ifdef RT_USING_PM
-    rt_pm_release(PM_SLEEP_MODE_IDLE);
+    lora_pm_release_idle();
 #endif
     Radio.Sleep();
 }

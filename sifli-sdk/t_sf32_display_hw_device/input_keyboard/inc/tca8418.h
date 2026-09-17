@@ -89,7 +89,7 @@ typedef enum {
     KEY_PREV = 41,  KEY_ESC = 42, KEY_HOME = 43, KEY_MAIL = 44,\
     KEY_ENTER = 31, KEY_1 = 32,   KEY_2 = 33,    KEY_3 = 34,\
     KEY_NEXT = 21,  KEY_4 = 22,   KEY_5 = 23,    KEY_6 = 24,\
-    KEY_COLSE = 11, KEY_7 = 12,   KEY_8 = 13,    KEY_9 = 14,\
+    KEY_CLOSE = 11, KEY_7 = 12,   KEY_8 = 13,    KEY_9 = 14,\
     KEY_STOP = 1,   KEY_MUL = 2,  KEY_0 = 3,     KEY_WELL = 4,
 } KeyCode;
 

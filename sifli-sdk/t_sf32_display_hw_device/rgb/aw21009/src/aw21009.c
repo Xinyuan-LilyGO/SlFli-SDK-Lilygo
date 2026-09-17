@@ -169,7 +169,7 @@ static rt_err_t aw21009_init(void)
 
     // 查找I2C总线设备，根据实际设备名修改
     i2c_bus =
-        (struct rt_i2c_bus_device *)rt_device_find(KEY_BOARD_I2C_BUS_NAME);
+        (struct rt_i2c_bus_device *)rt_device_find(AW21009_I2C_BUS_NAME);
     if (i2c_bus == RT_NULL)
     {
         rt_kprintf("Failed to find I2C bus device!\n");
@@ -178,12 +178,12 @@ static rt_err_t aw21009_init(void)
 
     if (rt_device_open((rt_device_t)i2c_bus, RT_DEVICE_OFLAG_RDWR) != RT_EOK)
     {
-        LOG_E("open %s device failed", KEY_BOARD_I2C_BUS_NAME);
+        LOG_E("open %s device failed", AW21009_I2C_BUS_NAME);
         return -RT_ERROR;
     }
     else
     {
-        LOG_I("open %s device success", KEY_BOARD_I2C_BUS_NAME);
+        LOG_I("open %s device success", AW21009_I2C_BUS_NAME);
     }
 
     struct rt_i2c_configuration configuration = {

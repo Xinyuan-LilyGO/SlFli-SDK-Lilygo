@@ -1,0 +1,104 @@
+menuconfig PKG_USING_RADIOLIB
+    bool "RadioLib: LoRa transceiver drivers in C"
+    default n
+    select RT_USING_SPI
+    select RT_USING_PIN
+
+if PKG_USING_RADIOLIB
+
+config RADIOLIB_USING_SX1262
+    bool "Enable SX1262"
+    default y
+
+config RADIOLIB_USING_LR1121
+    bool "Reserve LR1121 API (not implemented)"
+    default n
+
+config RADIOLIB_USING_LR2021
+    bool "Reserve LR2021 API (not implemented)"
+    default n
+
+config RADIOLIB_USING_SX1276
+    bool "Reserve SX1276 API (not implemented)"
+    default n
+
+if RADIOLIB_USING_SX1262
+
+config RADIOLIB_SPI_BUS_NAME
+    string "SPI bus name"
+    default "spi1"
+
+config RADIOLIB_SPI_DEVICE_NAME
+    string "SPI device name"
+    default "radiolib"
+
+config RADIOLIB_SPI_FREQUENCY
+    int "SPI frequency (Hz)"
+    range 100000 10000000
+    default 8000000
+
+config RADIOLIB_ENABLE_PIN
+    int "Module enable pin"
+    range -1 255
+    default 26
+
+config RADIOLIB_NSS_PIN
+    int "NSS pin"
+    range 0 255
+    default 29
+
+config RADIOLIB_DIO1_PIN
+    int "DIO1 pin"
+    range 0 255
+    default 30
+
+config RADIOLIB_BUSY_PIN
+    int "BUSY pin"
+    range 0 255
+    default 31
+
+config RADIOLIB_RESET_PIN
+    int "RESET pin"
+    range 0 255
+    default 32
+
+config RADIOLIB_DEFAULT_FREQUENCY
+    int "Default RF frequency (Hz)"
+    range 150000000 960000000
+    default 868000000
+
+config RADIOLIB_SX1262_USE_DCDC
+    bool "Use DC-DC regulator"
+    default y
+
+config RADIOLIB_SX1262_USE_DIO2_RF_SWITCH
+    bool "Use DIO2 to control RF switch"
+    default y
+
+config RADIOLIB_SX1262_TCXO_VOLTAGE_MV
+    int "DIO3 TCXO voltage (mV, 0 disables TCXO control)"
+    range 0 3300
+    default 3000
+
+config RADIOLIB_SX1262_TCXO_DELAY_MS
+    int "TCXO startup delay (ms)"
+    range 1 100
+    default 5
+
+config RADIOLIB_SX1262_BUSY_TIMEOUT_MS
+    int "BUSY timeout (ms)"
+    range 10 5000
+    default 1000
+
+config RADIOLIB_T_DISPLAY_SF32_PINMUX
+    bool "Configure T-Display-SF32 PA30/PA31/PA32 pin mux"
+    default y
+
+config RADIOLIB_USING_SAMPLES
+    bool "Build RadioLib MSH sample"
+    depends on FINSH_USING_MSH
+    default n
+
+endif
+
+endif

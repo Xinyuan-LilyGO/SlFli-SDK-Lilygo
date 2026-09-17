@@ -1,9 +1,12 @@
+import os
 from building import *
 
+objs = []
 cwd = GetCurrentDir()
-src = Glob('./src/*.c')
-inc = [cwd + '/inc']
 
-group = DefineGroup('WS2812', src, depend=['PKG_USING_WS2812'], CPPPATH=inc)
+for item in os.listdir(cwd):
+    script = os.path.join(cwd, item, 'SConscript')
+    if os.path.isfile(script):
+        objs += SConscript(script)
 
-Return('group')
+Return('objs')

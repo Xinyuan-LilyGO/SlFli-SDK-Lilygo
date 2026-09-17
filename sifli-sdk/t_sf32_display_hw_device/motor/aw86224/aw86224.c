@@ -445,7 +445,7 @@ rt_err_t aw86224_init()
 
     if (g_aw86224_dev.init_flag)
     {
-        LOG_W("AW86224 already initialized");
+        // LOG_W("AW86224 already initialized");
         return RT_EOK;
     }
 

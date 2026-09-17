@@ -31,7 +31,11 @@ extern "C"
      * @param result   AT_RESULT_OK / ERROR / URC
      */
     typedef void (*at_response_callback_t)(int resp_id, const char *response, int result);
+    typedef void *(*at_calloc_callback_t)(rt_size_t count, rt_size_t size);
+    typedef void (*at_free_callback_t)(void *pointer);
 
+    rt_err_t at_async_set_allocator(at_calloc_callback_t calloc_callback,
+                                    at_free_callback_t free_callback);
     rt_err_t at_async_init(const char *uart_name, uint32_t baudrate);
     void at_async_deinit(void);
     void at_async_register_callback(at_response_callback_t cb);

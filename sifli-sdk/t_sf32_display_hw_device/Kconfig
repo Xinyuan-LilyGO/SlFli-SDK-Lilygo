@@ -1,6 +1,7 @@
 menu "T SF32 Display hardware packages"
         
 source "$SIFLI_SDK/t_sf32_display_hw_device/lora-radio-driver/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/RadioLib/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/charge/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/input_keyboard/Kconfig"
 source "$SIFLI_SDK/t_sf32_display_hw_device/io_expand/Kconfig"

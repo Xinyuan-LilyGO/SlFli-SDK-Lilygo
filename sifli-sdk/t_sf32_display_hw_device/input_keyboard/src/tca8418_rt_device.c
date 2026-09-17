@@ -54,9 +54,6 @@ static rt_size_t tca8418_device_read(rt_device_t device, rt_off_t position,
     (void)position;
     if (events == RT_NULL || size == 0)
         return 0;
-    if (tca8418_device_ensure_ready() != RT_EOK)
-        return 0;
-
     queue = key_board_get_mq();
     if (queue == RT_NULL)
         return 0;

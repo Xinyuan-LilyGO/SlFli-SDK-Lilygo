@@ -1,0 +1,9 @@
+from building import *
+
+cwd = GetCurrentDir()
+src = Glob('./src/*.c')
+inc = [cwd + '/inc']
+
+group = DefineGroup('WS2812', src, depend=['PKG_USING_WS2812'], CPPPATH=inc)
+
+Return('group')

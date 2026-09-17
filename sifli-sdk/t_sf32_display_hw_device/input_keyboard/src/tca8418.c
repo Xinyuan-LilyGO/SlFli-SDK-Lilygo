@@ -27,6 +27,8 @@ static void tca8418_enable_irq_and_rescan(void);
 
 #define TCA8418_KEY_EVENT_MAX       10
 #define TCA8418_EVENT_COUNT_MASK    0x0F
+#define TCA8418_FALLBACK_POLL_MS    100U
+#define TCA8418_THREAD_STACK_SIZE   1024U
 
 #ifdef PKG_USING_PKG_KEY_BOARD
 
@@ -70,15 +72,9 @@ static inline rt_err_t TCA8418_WriteRegister(uint8_t reg, uint8_t *data,
                                              uint16_t length)
 {
     rt_size_t ret = 0;
-    uint8_t *buf = rt_malloc(length);
-    if (!buf)
-    {
-        return -RT_ERROR;
-    }
-    memcpy(&buf[0], data, length);
     ret =
-        rt_i2c_mem_write(tca8418_i2c_bus, TCA8418_ADDRESS, reg, 1, buf, length);
-    rt_free(buf);
+        rt_i2c_mem_write(tca8418_i2c_bus, TCA8418_ADDRESS, reg, 1,
+                         data, length);
     if (ret != length)
     {
         LOG_E("write reg addr and data failed");
@@ -144,8 +140,9 @@ static const struct rt_device_pm_ops tca8418_pm_op = {
 
 static void tca8418_int_isr(void *args)
 {
-    rt_sem_release(key_sem); // 信号量必须是RT_IPC_FLAG_FIFO类型
-    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_DISABLE); // 临时关闭中断
+    (void)args;
+    rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_DISABLE);
+    rt_sem_release(key_sem);
 }
 
 static void tca8418_enable_irq_and_rescan(void)
@@ -154,6 +151,7 @@ static void tca8418_enable_irq_and_rescan(void)
 
     if (rt_pin_read(KEY_BOARD_IRQ_PIN) == PIN_LOW)
     {
+        rt_pin_irq_enable(KEY_BOARD_IRQ_PIN, PIN_IRQ_DISABLE);
         rt_sem_release(key_sem);
     }
 }
@@ -258,10 +256,13 @@ static void key_scan_work(void)
             uint8_t keyNumber = keyEvents[i] & 0x7F;         // Bits 6:0
             uint8_t isPress = (keyEvents[i] & 0x80) ? 1 : 0; // Bit 7
 
+            if (keyNumber == 0U || keyNumber >= 81U)
+                continue;
+
             if (isPress)
             {
-                // log_d("Key Pressed: %d", keyNumber);
                 key_board_event_msg_t keyEvent;
+
                 keyEvent.code = keyNumber;
                 keyEvent.is_long_press = false;
 
@@ -280,18 +281,22 @@ static void key_scan_work(void)
 
 static void key_thread_entry(void *param)
 {
+    rt_tick_t poll_ticks =
+        rt_tick_from_millisecond(TCA8418_FALLBACK_POLL_MS);
+
+    (void)param;
     while (1)
     {
-        if (rt_sem_take(key_sem, RT_WAITING_FOREVER) == RT_EOK)
-        {
+        /* The IRQ remains the fast path. The bounded wait also recovers when
+         * a falling edge is missed while the TCA8418 FIFO already has data. */
+        rt_sem_take(key_sem, poll_ticks);
     #ifdef RT_USING_PM
-            rt_pm_request(PM_SLEEP_MODE_IDLE);
-            key_scan_work();
-            rt_pm_release(PM_SLEEP_MODE_IDLE);
+        rt_pm_request(PM_SLEEP_MODE_IDLE);
+        key_scan_work();
+        rt_pm_release(PM_SLEEP_MODE_IDLE);
     #else
-            key_scan_work();
+        key_scan_work();
     #endif
-        }
     }
 }
 /**
@@ -307,6 +312,11 @@ rt_err_t key_board_tca8418_init(void)
 
     TCA8418_reset();
     key_sem = rt_sem_create("key_sem", 0, RT_IPC_FLAG_FIFO);
+    if (key_sem == RT_NULL)
+    {
+        LOG_E("Create keyboard semaphore failed");
+        return -RT_ENOMEM;
+    }
 
     key_mq = rt_mq_create("key_mq", sizeof(key_board_event_msg_t), 10,
                           RT_IPC_FLAG_FIFO);
@@ -375,9 +385,14 @@ rt_err_t key_board_tca8418_init(void)
                       RT_NULL);
     tca8418_enable_irq_and_rescan();
 
-    rt_thread_t tid = rt_thread_create("key", key_thread_entry, RT_NULL, 1024,
-                                       RT_THREAD_PRIORITY_HIGH, 10);
-    rt_thread_startup(tid);
+    rt_thread_t tid = rt_thread_create(
+        "key", key_thread_entry, RT_NULL, TCA8418_THREAD_STACK_SIZE,
+        RT_THREAD_PRIORITY_HIGH, 10);
+    if (tid == RT_NULL || rt_thread_startup(tid) != RT_EOK)
+    {
+        LOG_E("Start keyboard scan thread failed");
+        return -RT_ERROR;
+    }
 
     #ifdef RT_USING_PM
     rt_pm_device_register(NULL, &tca8418_pm_op);
@@ -407,49 +422,57 @@ rt_mq_t key_board_get_mq(void)
 rt_err_t TCA8418_ReadKeyEvents(uint8_t *keyEvents, uint8_t *numEvents)
 {
     rt_err_t status;
-    uint8_t intStatus;
     uint8_t eventCount;
-    /* First check if there are any interrupts */
-    status = TCA8418_ReadRegister(INT_STAT, &intStatus, 1);
-    if (status != RT_EOK)
-    {
-        return -RT_ERROR;
-    }
-    /* Check if there are key events (KE_INT bit) */
-    if (!(intStatus & 0x01))
-    {
-        *numEvents = 0;
-        return RT_EOK; // No events
-    }
-    /* Read the event counter */
+    uint8_t clear = 0x01;
+
+    if (keyEvents == RT_NULL || numEvents == RT_NULL)
+        return -RT_EINVAL;
+
+    /*
+     * The FIFO count is authoritative. A key can enter the FIFO between
+     * reading the count and clearing KE_INT, leaving data without KE_INT set.
+     */
     status = TCA8418_ReadRegister(KEY_LCK_EC, &eventCount, 1);
     if (status != RT_EOK)
-    {
         return -RT_ERROR;
-    }
     eventCount &= TCA8418_EVENT_COUNT_MASK;
+
+    if (eventCount == 0U)
+    {
+        /* Clear the old IRQ, then check for an event that raced with it. */
+        status = TCA8418_WriteRegister(INT_STAT, &clear, 1);
+        if (status != RT_EOK)
+            return -RT_ERROR;
+
+        status = TCA8418_ReadRegister(KEY_LCK_EC, &eventCount, 1);
+        if (status != RT_EOK)
+            return -RT_ERROR;
+        eventCount &= TCA8418_EVENT_COUNT_MASK;
+
+        if (eventCount == 0U)
+        {
+            *numEvents = 0U;
+            return RT_EOK;
+        }
+    }
+
     /* Limit to maximum events that fit into caller buffer */
     if (eventCount > TCA8418_KEY_EVENT_MAX)
-    {
         eventCount = TCA8418_KEY_EVENT_MAX;
-    }
+
     /* Read all events from FIFO */
     for (uint8_t i = 0; i < eventCount; i++)
     {
         status = TCA8418_ReadRegister(KEY_EVENT_A, &keyEvents[i], 1);
         if (status != RT_EOK)
-        {
             return -RT_ERROR;
-        }
     }
     *numEvents = eventCount;
+
     /* Clear the interrupt by writing 1 to KE_INT bit */
-    intStatus = 0x01;
-    status = TCA8418_WriteRegister(INT_STAT, &intStatus, 1);
+    status = TCA8418_WriteRegister(INT_STAT, &clear, 1);
     if (status != RT_EOK)
-    {
         return -RT_ERROR;
-    }
     return RT_EOK;
 }
 
