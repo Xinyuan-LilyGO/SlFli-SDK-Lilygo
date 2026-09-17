@@ -102,6 +102,23 @@
 #define audio_mem_free      rt_free
 #define audio_mem_calloc    rt_calloc
 
+__WEAK void *audio_server_external_cache_calloc(audio_type_t audio_type,
+                                                uint32_t count,
+                                                uint32_t size)
+{
+    (void)audio_type;
+    (void)count;
+    (void)size;
+    return NULL;
+}
+
+__WEAK void audio_server_external_cache_free(audio_type_t audio_type,
+                                             void *pointer)
+{
+    (void)audio_type;
+    (void)pointer;
+}
+
 #define PRIVATE_DEFAULT_VOLUME              10
 
 #ifdef PKG_USING_SOUNDPLUS
@@ -248,6 +265,7 @@ struct audio_client_base_t
     audio_parameter_t           parameter;
     struct rt_ringbuffer        ring_buf;
     uint8_t                     *ring_pool;
+    uint8_t                     ring_pool_external;
 #if SOFTWARE_TX_MIX_ENABLE
     sifli_resample_t            *resample;
     int16_t                     resample_dst[TX_DMA_SIZE];
@@ -2676,6 +2694,18 @@ inline static void audio_client_start(audio_client_t client)
     rt_event_send(client->api_event, (1 << 1));
 }
 
+static void audio_client_free_ring_pool(audio_client_t client)
+{
+    if (client->ring_pool == NULL)
+        return;
+    if (client->ring_pool_external)
+        audio_server_external_cache_free(client->audio_type,
+                                         client->ring_pool);
+    else
+        audio_mem_free(client->ring_pool);
+    client->ring_pool = NULL;
+}
+
 inline static void audio_client_stop(audio_client_t client)
 {
     audio_type_t audio_type;
@@ -2714,7 +2744,7 @@ inline static void audio_client_stop(audio_client_t client)
         LOG_I("stop in suspendlist");
         rt_list_remove(&client->node);
         rt_ringbuffer_reset(&client->ring_buf);
-        audio_mem_free(client->ring_pool);
+        audio_client_free_ring_pool(client);
         client->magic = 0;
         rt_event_send(client->api_event, 1);
         audio_mem_free(client);
@@ -2723,7 +2753,7 @@ inline static void audio_client_stop(audio_client_t client)
 
     audio_device_close(server, client);
 
-    audio_mem_free(client->ring_pool);
+    audio_client_free_ring_pool(client);
     client->magic = 0;
     rt_event_send(client->api_event, 1);
 #if SOFTWARE_TX_MIX_ENABLE
@@ -3503,7 +3533,18 @@ static audio_client_t audio_client_init(audio_type_t audio_type, audio_rwflag_t 
     handle->user_data   = callback_userdata;
     handle->audio_type  = audio_type;
     handle->rw_flag     = rwflag;
-    handle->ring_pool   = audio_mem_calloc(1, tx_ring_size + RT_ALIGN_SIZE);
+    handle->ring_pool = audio_server_external_cache_calloc(
+                            audio_type, 1,
+                            tx_ring_size + RT_ALIGN_SIZE);
+    if (handle->ring_pool)
+    {
+        handle->ring_pool_external = 1;
+    }
+    else
+    {
+        handle->ring_pool = audio_mem_calloc(1,
+                                             tx_ring_size + RT_ALIGN_SIZE);
+    }
     RT_ASSERT(handle->ring_pool);
     rt_ringbuffer_init(&handle->ring_buf, handle->ring_pool, tx_ring_size);
 

@@ -144,6 +144,7 @@ struct mp3ctrl_t
     void                      *userdata;
 
     uint8_t         *cache_ptr;
+    uint8_t         cache_ptr_external;
     uint8_t         *cache_read_ptr;
     int             cache_bytesLeft;
     mp3_info_t      frameinfo;
@@ -153,6 +154,7 @@ struct mp3ctrl_t
     void            *vbe;
     int             last_veb_out_bytes;
 #endif
+
     const char      *filename; //filename or mp3 data
     uint32_t        mp3_data_len;
     uint32_t        tag_len;
@@ -209,6 +211,38 @@ typedef struct ID3v2
     #define audio_mem_free      rt_free
     #define audio_mem_calloc    rt_calloc
 #endif
+
+__WEAK void *mp3ctrl_external_calloc(uint32_t count, uint32_t size)
+{
+    (void)count;
+    (void)size;
+    return NULL;
+}
+
+__WEAK void mp3ctrl_external_free(void *pointer)
+{
+    (void)pointer;
+}
+
+static void *mp3ctrl_work_calloc(uint32_t size, uint8_t *external)
+{
+    void *pointer = mp3ctrl_external_calloc(1, size);
+
+    *external = pointer != NULL;
+    if (pointer == NULL)
+        pointer = audio_mem_calloc(1, size);
+    return pointer;
+}
+
+static void mp3ctrl_work_free(void *pointer, uint8_t external)
+{
+    if (pointer == NULL)
+        return;
+    if (external)
+        mp3ctrl_external_free(pointer);
+    else
+        audio_mem_free(pointer);
+}
 
 static uint32_t wav_read_header(mp3ctrl_handle ctrl);
 static int get_frame_info(mp3ctrl_handle ctrl, MP3FrameInfo *mp3FrameInfo);
@@ -603,16 +637,28 @@ static void mp3ctrl_thread_entry_file(void *parameter)
     uint8_t  is_closing = 0;
     uint8_t  cache_full_occured = 0;
     uint8_t  transition_fade_in = 0;
+    uint8_t  out_buf_external = 0;
+#if !TWS_MIX_ENABLE
+    uint8_t  out_buf2_external = 0;
+#endif
+#if PKG_USING_VBE_DRC
+    uint8_t  vbe_out_external = 0;
+#endif
     mp3ctrl_handle ctrl = (mp3ctrl_handle)parameter;
     HMP3Decoder hMP3Decoder = MP3InitDecoder();
     RT_ASSERT(hMP3Decoder);
-    short *outBuf = audio_mem_malloc(sizeof(short) * MAX_NCHAN * MAX_NGRAN * MAX_NSAMP);
+    short *outBuf = mp3ctrl_work_calloc(
+                        sizeof(short) * MAX_NCHAN * MAX_NGRAN * MAX_NSAMP,
+                        &out_buf_external);
 #if !TWS_MIX_ENABLE
-    short *outBuf2 = audio_mem_malloc(sizeof(short) * MAX_NCHAN * MAX_NGRAN * MAX_NSAMP);
+    short *outBuf2 = mp3ctrl_work_calloc(
+                         sizeof(short) * MAX_NCHAN * MAX_NGRAN * MAX_NSAMP,
+                         &out_buf2_external);
     RT_ASSERT(outBuf2);
 #endif
 #if PKG_USING_VBE_DRC
-    short *vbe_out = audio_mem_malloc(VBE_OUT_BUFFER_SIZE);
+    short *vbe_out = mp3ctrl_work_calloc(VBE_OUT_BUFFER_SIZE,
+                                         &vbe_out_external);
     RT_ASSERT(vbe_out);
 #endif
     RT_ASSERT(outBuf);
@@ -1072,7 +1118,7 @@ look_write_result:
         vbe_drc_close(ctrl->vbe);
         ctrl->vbe = NULL;
     }
-    audio_mem_free(vbe_out);
+    mp3ctrl_work_free(vbe_out, vbe_out_external);
 #endif
 
     LOG_I("mp3 exit..nFrames=%d", nFrames);
@@ -1081,11 +1127,11 @@ look_write_result:
     if (ctrl->is_file)
         close(ctrl->fd);
 #endif
-    audio_mem_free(ctrl->cache_ptr);
+    mp3ctrl_work_free(ctrl->cache_ptr, ctrl->cache_ptr_external);
     ctrl->cache_ptr = NULL;
-    audio_mem_free(outBuf);
+    mp3ctrl_work_free(outBuf, out_buf_external);
 #if !TWS_MIX_ENABLE
-    audio_mem_free(outBuf2);
+    mp3ctrl_work_free(outBuf2, out_buf2_external);
 #endif
     mp3_slist_lock(ctrl);
     while (1)
@@ -1118,14 +1164,20 @@ static void wave_thread_entry_file(void *parameter)
     uint8_t  is_closing = 0;
     uint8_t  cache_full_occured = 0;
     uint8_t  transition_fade_in = 0;
+    uint8_t  out_buf_external = 0;
+#if !TWS_MIX_ENABLE
+    uint8_t  out_buf2_external = 0;
+#endif
     uint8_t  old_channels = -1;;
     uint32_t old_samplerate = -1;
     rt_tick_t start = 0;
     mp3ctrl_handle ctrl = (mp3ctrl_handle)parameter;
-    short *outBuf = audio_mem_malloc(WAV_FRAME_SIZE);
+    short *outBuf = mp3ctrl_work_calloc(WAV_FRAME_SIZE,
+                                        &out_buf_external);
     RT_ASSERT(outBuf);
 #if !TWS_MIX_ENABLE
-    short *outBuf2 = audio_mem_malloc(WAV_FRAME_SIZE * 2);
+    short *outBuf2 = mp3ctrl_work_calloc(WAV_FRAME_SIZE * 2,
+                                         &out_buf2_external);
     RT_ASSERT(outBuf2);
 #endif
     int nFrames = 0;
@@ -1480,12 +1532,12 @@ check_write_result:
 #endif
     if (ctrl->cache_ptr)
     {
-        audio_mem_free(ctrl->cache_ptr);
+        mp3ctrl_work_free(ctrl->cache_ptr, ctrl->cache_ptr_external);
         ctrl->cache_ptr = NULL;
     }
-    audio_mem_free(outBuf);
+    mp3ctrl_work_free(outBuf, out_buf_external);
 #if !TWS_MIX_ENABLE
-    audio_mem_free(outBuf2);
+    mp3ctrl_work_free(outBuf2, out_buf2_external);
 #endif
     mp3_slist_lock(ctrl);
     while (1)
@@ -1643,7 +1695,9 @@ static mp3ctrl_handle mp3ctrl_open_real(audio_type_t type,
 
     if (handle->is_wave == 0)
     {
-        handle->cache_ptr = audio_mem_malloc(CACHE_BUF_SIZE);
+        handle->cache_ptr = mp3ctrl_work_calloc(
+                                CACHE_BUF_SIZE,
+                                &handle->cache_ptr_external);
         RT_ASSERT(handle->cache_ptr);
     }
     handle->cache_bytesLeft = 0;
@@ -1934,7 +1988,9 @@ int mp3ctrl_getinfo(const char *filename, mp3_info_t *info)
     }
     if (handle->is_wave == 0)
     {
-        handle->cache_ptr = audio_mem_malloc(CACHE_BUF_SIZE);
+        handle->cache_ptr = mp3ctrl_work_calloc(
+                                CACHE_BUF_SIZE,
+                                &handle->cache_ptr_external);
         RT_ASSERT(handle->cache_ptr);
     }
     if (handle->is_wave == 0 && get_frame_info(handle, &frameinfo) == 0)
@@ -1961,7 +2017,8 @@ int mp3ctrl_getinfo(const char *filename, mp3_info_t *info)
 Exit:
     if (handle->cache_ptr)
     {
-        audio_mem_free(handle->cache_ptr);
+        mp3ctrl_work_free(handle->cache_ptr,
+                          handle->cache_ptr_external);
     }
     audio_mem_free(handle);
     return 0;
@@ -1991,6 +2048,13 @@ PUBLIC_API int mp3ctrl_seek(mp3ctrl_handle handle, uint32_t seconds)
     rt_event_recv(handle->api_event, API_EVENT_SEEK, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, RT_WAITING_FOREVER, &evt);
 
     return 0;
+}
+
+PUBLIC_API uint32_t mp3ctrl_get_duration(mp3ctrl_handle handle)
+{
+    if (!handle || handle->magic != MP3_HANDLE_MAGIC)
+        return 0;
+    return handle->total_time_in_seconds;
 }
 
 
