@@ -1,0 +1,282 @@
+/*
+ * SPDX-FileCopyrightText: 2019-2022 SiFli Technologies(Nanjing) Co., Ltd
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "rtthread.h"
+#include "bf0_hal.h"
+#include "drv_io.h"
+#include "stdio.h"
+#include "dfs_file.h"
+#include "drivers/mmcsd_core.h"
+#include "dfs_posix.h"
+
+#if defined (BSP_USING_SDMMC1)
+    #define APP_SD_DEV_NAME "sd0"
+#elif defined(BSP_USING_SDMMC2)
+    #define APP_SD_DEV_NAME "sd1"
+#endif /* BSP_USING_SDMMC1 */
+
+/* User code start from here --------------------------------------------------------*/
+#ifndef FS_REGION_START_ADDR
+    #error "Need to define file system start address!"
+#else
+
+    #define FS_CODE "code"
+    #define FS_CODE_OFFSET  0X00001000
+    #define FS_CODE_LEN     20480*1024
+
+    #define FS_ROOT "root"
+    #define FS_ROOT_OFFSET  0X00081000
+    #define FS_ROOT_LEN     48*1024*1024  //48M
+
+    #define FS_MSIC "misc"
+    #define FS_MSIC_OFFSET  0X00f81000
+    #define FS_MSIC_LEN     500*1024*1024 //500MB
+#endif
+
+uint8_t mnt_test = 0;
+int mnt_init(void)
+{
+    uint16_t wait_ticks = 400; /* 8s: 400 * 20ms */
+    rt_device_t sd_dev = RT_NULL;
+
+    rt_kprintf("wait %s device ready...\n", APP_SD_DEV_NAME);
+    while (wait_ticks--)
+    {
+        rt_thread_mdelay(20);
+        sd_dev = rt_device_find(APP_SD_DEV_NAME);
+        if (sd_dev)
+        {
+            rt_kprintf("%s device ready\n", APP_SD_DEV_NAME);
+            break;
+        }
+    }
+    rt_mmcsd_blk_device_create(APP_SD_DEV_NAME, FS_CODE, FS_CODE_OFFSET >> 9, FS_CODE_LEN >> 9);
+    rt_mmcsd_blk_device_create(APP_SD_DEV_NAME, FS_ROOT, FS_ROOT_OFFSET >> 9, FS_ROOT_LEN >> 9);
+    rt_mmcsd_blk_device_create(APP_SD_DEV_NAME, FS_MSIC, FS_MSIC_OFFSET >> 9, FS_MSIC_LEN >> 9);
+
+    if (dfs_mount(FS_ROOT, "/", "elm", 0, 0) == 0) // fs exist
+    {
+        rt_kprintf("mount fs on flash to root success\n");
+    }
+    else
+    {
+        // auto mkfs, remove it if you want to mkfs manual
+        rt_kprintf("mount fs on flash to root fail\n");
+        if (dfs_mkfs("elm", FS_ROOT) == 0)//Format file system
+        {
+            rt_kprintf("make elm fs on flash sucess, mount again\n");
+            if (dfs_mount(FS_ROOT, "/", "elm", 0, 0) == 0)
+                rt_kprintf("mount fs on flash success\n");
+            else
+                rt_kprintf("mount to fs on flash fail\n");
+        }
+        else
+            rt_kprintf("dfs_mkfs elm flash fail\n");
+    }
+    mkdir("/misc", 0);
+    if (dfs_mount(FS_MSIC, "/misc", "elm", 0, 0) == 0) // fs exist
+    {
+        rt_kprintf("mount fs on flash to FS_MSIC success\n");
+    }
+    else
+    {
+        // auto mkfs, remove it if you want to mkfs manual
+        rt_kprintf("mount fs on flash to FS_MISC fail\n");
+        if (dfs_mkfs("elm", FS_MSIC) == 0)//Format file system
+        {
+            rt_kprintf("make elm fs on flash sucess, mount again\n");
+
+            if (dfs_mount(FS_MSIC, "/misc", "elm", 0, 0) == 0)
+                rt_kprintf("mount fs on flash success\n");
+            else
+                rt_kprintf("mount to fs on flash fail err=%d\n", rt_get_errno());
+        }
+        else
+            rt_kprintf("dfs_mkfs elm flash fail\n");
+    }
+    return RT_EOK;
+}
+INIT_ENV_EXPORT(mnt_init);
+
+#if defined(BSP_USING_SDIO)
+#include "bf0_hal_aon.h"
+
+#define SDIO_TEST_LEN 512
+
+void cmd_fs_write_t(char *path, int num)
+{
+    struct dfs_fd fd_test_sd;
+    uint32_t open_time = 0, end_time = 0;
+    float test_time = 0.0;
+    float speed_test = 0.0;
+    char *buff = rt_malloc(SDIO_TEST_LEN);
+    memset(buff, 0x55, SDIO_TEST_LEN);
+    uint32_t write_num = num;
+    uint32_t write_byt = write_num * SDIO_TEST_LEN * 8;
+    if (dfs_file_open(&fd_test_sd, path, O_RDWR | O_CREAT | O_TRUNC) == 0)
+    {
+        open_time = HAL_GTIMER_READ();
+        while (write_num--)
+        {
+            dfs_file_write(&fd_test_sd, buff, SDIO_TEST_LEN);
+        }
+        end_time = HAL_GTIMER_READ();
+    }
+    dfs_file_close(&fd_test_sd);
+    test_time = ((end_time - open_time) / HAL_LPTIM_GetFreq()) * 1000 * 1000;
+    speed_test = write_byt / test_time;
+    rt_kprintf("%s path=%s num=%d blocks testtime=%.6lfuS,speed_test=%.6lfMb/s\n", __func__, path, num, test_time, speed_test);
+    rt_free(buff);
+}
+
+void cmd_fs_write(int argc, char **argv)
+{
+    cmd_fs_write_t(argv[1], atoi(argv[2]));
+
+}
+FINSH_FUNCTION_EXPORT_ALIAS(cmd_fs_write, __cmd_fs_write, test write speed);
+
+void cmd_fs_read_t(char *path, int num)
+{
+    struct dfs_fd fd_read;
+    uint32_t open_time = 0, end_time = 0;
+    float test_time = 0.0;
+    float speed_test = 0.0;
+    char *buff = rt_malloc(SDIO_TEST_LEN);
+    uint32_t read_num = num;
+    uint32_t read_byt = read_num * SDIO_TEST_LEN * 8;
+    rt_memset(buff, 0, SDIO_TEST_LEN);
+    if (dfs_file_open(&fd_read, path, O_RDONLY) == 0)
+    {
+        open_time = HAL_GTIMER_READ();
+        while (read_num)
+        {
+            dfs_file_read(&fd_read, buff, SDIO_TEST_LEN);
+            read_num--;
+        }
+        end_time = HAL_GTIMER_READ();
+    }
+    dfs_file_close(&fd_read);
+    test_time = ((end_time - open_time) / HAL_LPTIM_GetFreq()) * 1000 * 1000;
+    speed_test = read_byt / test_time;
+    rt_kprintf("%s  path=%s num=%d blocks testtime=%.6lfuS,speed_test=%.6lfMb/s\n", __func__, path, num, test_time, speed_test);
+    rt_free(buff);
+}
+
+void cmd_fs_read(int argc, char **argv)
+{
+    cmd_fs_read_t(argv[1], atoi(argv[2]));
+}
+FINSH_FUNCTION_EXPORT_ALIAS(cmd_fs_read, __cmd_fs_read, test read speed);
+
+/* ---- extended commands: convenience wrappers that parse unit strings ---- */
+
+static uint32_t parse_size(const char *str)
+{
+    char *endptr;
+    unsigned long num = strtoul(str, &endptr, 10);
+    if (endptr == str || num == 0)  return 0;
+
+    if (*endptr == '\0')
+        return (uint32_t)num;
+    if (strcmp(endptr, "k") == 0 || strcmp(endptr, "K") == 0)
+        return (uint32_t)(num * 1024);
+    if (strcmp(endptr, "m") == 0 || strcmp(endptr, "M") == 0)
+        return (uint32_t)(num * 1024 * 1024);
+
+    return 0;
+}
+
+static void cmd_fs_write_ex(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        rt_kprintf("Usage: fs_write_ex <path> <total_size>\n");
+        rt_kprintf("  total_size: e.g. 512k 1m 2m 4m 8m\n");
+        rt_kprintf("  e.g. fs_write_ex /1.txt 2m\n");
+        return;
+    }
+    uint32_t total_size = parse_size(argv[2]);
+    if (total_size == 0)
+    {
+        rt_kprintf("Invalid total_size\n");
+        return;
+    }
+    cmd_fs_write_t(argv[1], total_size / SDIO_TEST_LEN);
+}
+FINSH_FUNCTION_EXPORT_ALIAS(cmd_fs_write_ex, __cmd_fs_write_ex, fs_write_ex path total_size);
+
+static void cmd_fs_read_ex(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        rt_kprintf("Usage: fs_read_ex <path> <total_size>\n");
+        rt_kprintf("  total_size: e.g. 512k 1m 2m 4m 8m\n");
+        rt_kprintf("  e.g. fs_read_ex /1.txt 2m\n");
+        return;
+    }
+    uint32_t total_size = parse_size(argv[2]);
+    if (total_size == 0)
+    {
+        rt_kprintf("Invalid total_size\n");
+        return;
+    }
+    cmd_fs_read_t(argv[1], total_size / SDIO_TEST_LEN);
+}
+FINSH_FUNCTION_EXPORT_ALIAS(cmd_fs_read_ex, __cmd_fs_read_ex, fs_read_ex path total_size);
+
+#endif
+#ifdef RT_USING_PM
+static void app_wakeup(void)
+{
+    uint8_t pin = HAL_HPAON_QueryWakeupPin(hwp_gpio2, 54);
+    HPAON_WakeupSrcTypeDef src = pin + HPAON_WAKEUP_SRC_PIN0;//PB54
+    HAL_StatusTypeDef status = HAL_HPAON_EnableWakeupSrc(src, AON_PIN_MODE_LOW);
+}
+static rt_timer_t timer_handler = NULL;
+static void emmc_pm_test_read(void *param)
+{
+    cmd_fs_read_t("/1.txt", 1);
+}
+
+static void test_time_pm(void)
+{
+    timer_handler = rt_timer_create("emmc_timer", emmc_pm_test_read, 0, rt_tick_from_millisecond(2000), RT_TIMER_FLAG_PERIODIC | RT_TIMER_FLAG_SOFT_TIMER);
+    RT_ASSERT(timer_handler);
+    rt_timer_start(timer_handler);
+}
+
+#endif
+
+int main(void)
+{
+#ifdef RT_USING_PM
+    app_wakeup();
+    cmd_fs_write_t("/1.txt", 2);
+    test_time_pm();
+#endif
+
+#ifdef SDMMC1_BUS_WIDTH_1_ONLY
+#ifdef SOC_SF32LB56X
+    HAL_PIN_Set_Analog(PAD_PA15, 1);
+    HAL_PIN_Set_Analog(PAD_PA12, 1);
+    HAL_PIN_Set_Analog(PAD_PA20, 1);
+#elif SOC_SF32LB58X
+    HAL_PIN_Set_Analog(PAD_PA79, 1);
+    HAL_PIN_Set_Analog(PAD_PA81, 1);
+    HAL_PIN_Set_Analog(PAD_PA75, 1);
+#endif
+#endif
+
+    /* Output a message on console using printf function */
+    rt_kprintf("Use help to check emmc file system command!\n");
+    /* Infinite loop */
+    while (1)
+    {
+        rt_thread_mdelay(10000);    // Let system breath.
+    }
+    return 0;
+}

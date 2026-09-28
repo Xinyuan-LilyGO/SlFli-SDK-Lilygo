@@ -1,0 +1,27 @@
+from building import * 
+import rtconfig
+
+# get current dir path
+cwd = GetCurrentDir()
+
+# init src and inc vars
+src = []
+inc = []
+
+# add LittlevGL Sifli watch component common include
+inc = inc + [cwd]
+inc = inc + [cwd+'/..']
+
+# add LittlevGL Sifli watch component code
+src = src + Glob('./*.c')
+
+if not GetDepend('LVSF_USING_SWITCHANIM'):
+    SrcRemove(src, 'lvsf_switchanim.c')
+    SrcRemove(src, 'lvsf_switchanim_com.c')
+
+
+LOCAL_CCFLAGS = ''
+
+group = DefineGroup('LV_SF', src, depend = ['PKG_USING_LITTLEVGL2RTT'], CPPPATH = inc, LOCAL_CCFLAGS = LOCAL_CCFLAGS)
+
+Return('group')

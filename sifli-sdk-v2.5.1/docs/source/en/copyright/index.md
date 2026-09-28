@@ -1,0 +1,7 @@
+# Copyright
+
+```{toctree}
+:titlesonly:
+
+copyright
+```

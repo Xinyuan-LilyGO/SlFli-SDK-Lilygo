@@ -1,0 +1,108 @@
+@REM usage: set_env [toolchain]
+@REM toolchain could be: keil | gcc | iar
+@echo off
+set SIFLI_SDK=%~dp0
+set SIFLI_SDK_PATH=%~dp0
+set PKGS_DIR=%PKGS_ROOT%
+set CONAN_HOME=%ENV_ROOT%\tools\conan
+set "SIFLI_SDK_VER_MAJOR="
+set "SIFLI_SDK_VER_MINOR="
+
+if exist "%~dp0.version" (
+    for /f "usebackq tokens=1,2 delims==" %%A in ("%~dp0.version") do (
+        if /i "%%A"=="MAJOR" set "SIFLI_SDK_VER_MAJOR=%%B"
+        if /i "%%A"=="MINOR" set "SIFLI_SDK_VER_MINOR=%%B"
+    )
+)
+
+if defined SIFLI_SDK_VER_MAJOR if defined SIFLI_SDK_VER_MINOR (
+    set "SIFLI_SDK_VERSION=%SIFLI_SDK_VER_MAJOR%.%SIFLI_SDK_VER_MINOR%"
+)
+set "SIFLI_SDK_VER_MAJOR="
+set "SIFLI_SDK_VER_MINOR="
+
+set "ver_check=1.2.0"
+if not defined ENV_VER (
+    echo Please upgrate env to v%ver_check% or greater
+    echo set_env FAIL
+    exit /b 1
+)
+
+REM Convert version strings to comparable numbers by removing dots
+set "ver_current=%ENV_VER%"
+
+set "ver_check_num=%ver_check:.=%"
+set "ver_current_num=%ver_current:.=%"
+
+REM Compare versions
+if %ver_current_num% LSS %ver_check_num% (
+    echo Error: Env version v%ENV_VER% is lower than required v%ver_check%
+    echo Please download latest env from: https://downloads.sifli.com/tools/env/env_latest.zip
+    exit /b 1
+)
+
+REM Use keil by default
+set RTT_CC=keil
+if defined REG_KEIL_PATH (
+    set RTT_EXEC_PATH=%REG_KEIL_PATH%
+) else (
+    set RTT_EXEC_PATH=C:/Keil_v5
+)    
+
+if "%1"=="gcc" goto :SET_GCC
+if "%1"=="iar" goto :SET_IAR
+if "%1"=="keil" goto :CHECK
+if "%1"==""    goto :SET_GCC
+
+echo Unsupported toolchain: %1.
+echo Supported toolchain: keil, iar, gcc.
+goto :END
+
+
+:SET_GCC
+set RTT_CC=gcc
+REM @if "%REG_GCC_PATH%"=="" goto :PRINT_GCC_PATH_ERROR
+REM @set RTT_EXEC_PATH=%REG_GCC_PATH%
+
+set RTT_EXEC_PATH=%ENV_ROOT%\tools\gnu_gcc\arm_gcc_14.2.1\bin
+goto :CHECK
+
+:SET_IAR
+set RTT_CC=iar
+REM replace with your IAR install path
+if defined REG_IAR_PATH (
+    set RTT_EXEC_PATH=%REG_IAR_PATH%
+) else (
+    set RTT_EXEC_PATH=C:/PROGRA~2/IARSYS~1/EMBEDD~1.2
+)    
+goto :CHECK
+
+:CHECK
+REM change default python2.7 to python3.11
+set PYTHONPATH=%ENV_ROOT%\tools\python-3.11.9-amd64
+set PYTHONHOME=%ENV_ROOT%\tools\python-3.11.9-amd64
+set SCONS=%PYTHONPATH%\Scripts
+set PATH=%ENV_ROOT%\tools\git\Git\bin;%ORG_PATH%
+set PATH=%ENV_ROOT%\tools\bin;%PATH%
+set PATH=%RTT_EXEC_PATH%;%PATH%
+set PATH=%PYTHONHOME%;%PATH%
+set PATH=%PYTHONPATH%;%PATH%
+set PATH=%SCONS%;%PATH%
+set PATH=%ENV_ROOT%\tools\qemu\qemu32;%PATH%
+set PATH=%ENV_ROOT%\tools\cmake\bin;%PATH%
+
+set PYTHONPATH= %PYTHONPATH%;%SIFLI_SDK%tools\build;%SIFLI_SDK%tools\build\default;
+set SIFLI_SDK=%SIFLI_SDK:\=/%
+set PATH=%SIFLI_SDK%tools\menuconfig\dist;%PATH%;%SIFLI_SDK%tools\scripts;
+set LEGACY_ENV=1
+
+if not exist "%RTT_EXEC_PATH%" goto :PRINT_GCC_PATH_ERROR
+goto :END
+
+:PRINT_GCC_PATH_ERROR
+echo ERROR: "%RTT_EXEC_PATH%" not exists. Please use SiFli env version above v1.1.1 and set correct toolchain path
+exit /b 1
+
+:END
+echo set_env DONE.
+

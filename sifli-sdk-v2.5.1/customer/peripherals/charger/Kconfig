@@ -1,0 +1,114 @@
+menuconfig BSP_USING_CHARGER
+    depends on RT_USING_PIN
+    bool "Charger"
+    default n
+    if BSP_USING_CHARGER  
+        choice
+            prompt "Charger Device"
+            default CHARGE_USING_SIFLI if SOC_SF32LB52X
+            default CHARGE_USING_SGM40561 if !SOC_SF32LB52X
+            config CHARGE_USING_SIFLI
+                depends on SOC_SF32LB52X
+                bool "SF32LB52X builtin charger"
+            config CHARGE_USING_SGM40561
+                bool "SGM40561 charger"
+            config CHARGE_USING_AW32001
+                bool "AW32001 charger"
+            config CHARGE_USING_SIMPLE_CHARGE
+                bool "Simple charger"
+                help
+                   Simple charger has no control interface, it cannot be configured with charge current, 
+                   charge full voltage, etc. 
+        endchoice
+        choice
+            prompt "Charger Measure VBAT ADC Mode"
+            default CHARGER_MEASURE_MODE_SUSPEND
+            config CHARGER_MEASURE_MODE_SUSPEND    
+            bool "Charger Measure VBAT ADC Mode Suspend"
+            config CHARGER_MEASURE_MODE_CURVE    
+            bool "Charger Measure VBAT ADC Mode CURVE"
+        endchoice          
+        menuconfig CHARGE_PIN_CONFIG
+            bool "Charger pin number config -1:invalid >=0:valid"
+            default y
+            if CHARGE_PIN_CONFIG
+                config BSP_CHARGER_INT_PIN
+                    int "Charger Detection Pin Number"
+                    default 143
+                config BSP_CHARGER_INT_PIN_ACTIVE_HIGH
+                    bool "Detect pin level is high if charge plug in"
+                    default n  
+                config BSP_CHARGER_EN_PIN  
+                    int "Charger Enable Pin Number"
+                    default -1
+                config BSP_CHARGING_PIN  
+                    int "Charging Status Pin Number"
+                    default -1
+                config BSP_CHARGING_PIN_ACTIVE_HIGH
+                    bool "Charging pin level is high if charge plug in"
+                    default n   
+                config BSP_CHARGE_FULL_PIN  
+                    int "Charge Full Status Pin Number"
+                    default -1
+                config BSP_CHARGE_FULL_PIN_ACTIVE_HIGH
+                    bool "Charge Full Pin Level is High if Charge Plug In"
+                    default n
+            endif
+        menuconfig CHARGE_I2C_CONFIG
+            bool "Charge I2C Config"
+            default n
+            
+            if CHARGE_I2C_CONFIG
+                config BSP_BATTERY_USE_I2C_BUS
+                    string "Charge I2C Bus Config"
+                    default "i2c2"
+            endif   
+        menuconfig CHARGE_ADC_CONFIG
+            bool "Charger ADC Config"
+            default y
+            
+            if CHARGE_ADC_CONFIG    
+                config BSP_BATTERY_DETECT_ADC
+                    string "Battery Measurement ADC Device Name"
+                    default "bat1"
+                    
+                config BSP_BATTERY_DETECT_ADC_CHANNEL
+                    int "Battery Measurement ADC Channel"
+                    default 1
+            endif
+        menuconfig CHARGE_MONITOR_TEMP_CONFIG
+            bool "NTC Temperature Config"
+            default n
+            
+            if CHARGE_MONITOR_TEMP_CONFIG
+                config BSP_NTC_TEMP_ADC
+                    string  "NTC ADC Device Name"
+                    default "bat1"
+                    
+                config BSP_NTC_TEMP_ADC_CHANNEL
+                    int "NTC ADC Channel"
+                    default 4
+                    
+                choice
+                    prompt "NTC Value Computing Method"
+                    default BSP_NTC_TEMP_METHOD_FORMULA_COMPUTE
+                    
+                    config BSP_NTC_TEMP_METHOD_FORMULA_COMPUTE
+                    bool "Formula"
+                    help
+                       Compute by formula
+                    
+                    config BSP_NTC_TEMP_METHOD_LOOKUP_TABLE
+                    bool "Lookup Table"  
+                    help
+                       Compute by lookup table
+                endchoice
+            endif
+        config BSP_USING_CHARGER_DETECT
+            bool "Charger Detection Enabled"
+            default n
+            
+        config CHARGE_NO_BATTERY
+            bool "Charger without Battery"
+            default n
+    endif

@@ -1,0 +1,23 @@
+config KCONFIG_BOARD_V2
+    bool 
+    default y
+source "$SIFLI_SDK/customer/boards/Kconfig_soc"
+source "$SIFLI_SDK/customer/boards/Kconfig_drv"
+menu "Config LCD on board"
+    config BSP_USING_LCD
+        bool "Enable LCD on the board"
+        select BSP_USING_LCDC
+        default n
+
+    if !FPGA
+        source "$SIFLI_SDK/customer/boards/Kconfig_lcd"
+    endif
+    if FPGA
+        source "$SIFLI_SDK/customer/boards/Kconfig_lcd_fpga"
+    endif
+endmenu
+menu "Board Peripherals"
+source "$SIFLI_SDK/customer/peripherals/Kconfig"
+endmenu
+
+    

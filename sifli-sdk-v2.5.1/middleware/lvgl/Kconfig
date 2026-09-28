@@ -1,0 +1,192 @@
+menu "SiFli extend"
+        config LV_USING_FREETYPE_ENGINE
+        bool "Enable freetype font engine"
+        select PKG_FREETYPE
+        default n
+
+        choice
+            prompt "Select Freetype Lib"
+            depends on LV_USING_FREETYPE_ENGINE
+            default FREETYPE_TINY_FONT
+            config FREETYPE_TINY_FONT
+                bool "using Freetype Tiny Lib"
+            config FREETYPE_NORMAL_FONT
+                bool "using Freetype Normal Lib"
+        endchoice
+
+        menu "FreeType cache config"
+            depends on LV_USING_FREETYPE_ENGINE
+
+            config LV_FREETYPE_CACHE_FT_FACES
+                int "The maximum number of FT_Face(0: use FreeType defaults)"
+                default 0
+
+            config LV_FREETYPE_CACHE_FT_SIZES
+                int "The maximum number of FT_Size(0: use FreeType defaults)"
+                default 0
+        endmenu
+
+        menu "Font manager config"
+            depends on LV_USING_FREETYPE_ENGINE
+
+            config LVSF_FONT_MIN_FREE_HEAP
+                int "Minimum system heap left after creating a font object, in bytes (0: no check)"
+                default 0
+                help
+                  An opened font keeps its index tables resident - the loca and hmtx
+                  tables of a full CJK font alone can take hundreds of KB. Without this
+                  check such a font loads successfully and the system dies later on an
+                  unrelated allocation, far away from the real cause.
+
+                  When set, lvsf_font_get*/lvsf_font_load_ex() refuse to create a font
+                  object that would leave less than this many bytes of system heap, so
+                  the application gets a NULL and can fall back to another font. 32768
+                  is a reasonable starting point for boards with a few hundred KB of
+                  heap. Ignored when FreeType allocates from a dedicated memheap
+                  (FREETYPE_CACHE_IN_SRAM_STANDALONE / FREETYPE_CACHE_IN_PSRAM), which
+                  is bounded by construction.
+
+            config LVSF_FONT_UNLOAD_REF_CHECK
+                bool "Check for live references before freeing a font object"
+                default y
+                help
+                  The font manager hands out raw lv_font_t pointers that applications
+                  store in LVGL styles, so unloading a font that is still displayed is
+                  a use-after-free.
+
+                  With this option lvsf_font_unload*() walks the object tree of every
+                  display first and keeps a font that is still referenced, reporting the
+                  error instead of freeing it. Applications must re-point their styles
+                  to another font before unloading.
+        endmenu
+
+        config LV_USE_EZIP
+            bool "Use on-the-fly ezip decoder"
+            default y
+
+        config LV_USE_SIFLI_JPEGD
+            bool "Use SiFli on-the-fly jpeg decoder"
+            default y
+            depends on SOC_SF32LB57X
+
+        config LVSF_USING_SJPG
+            bool "Use LVSF JPEG/SJPEG decoder"
+            default n
+
+        config LVSF_SJPG_OUTPUT_YUV420
+            bool "Use YUV420 planar output for LVSF JPEG/SJPEG decoder"
+            depends on LVSF_USING_SJPG && !SOC_SF32LB55X && !SOC_SF32LB58X
+            default y
+
+        config LV_USING_EXT_RESOURCE_MANAGER
+            bool "Enable extended resource manager"
+            default n
+        if !LV_USING_EXT_RESOURCE_MANAGER
+            config LV_USING_FILE_RESOURCE
+                bool "Use file image resource"
+                default n
+        endif
+        if LV_USING_EXT_RESOURCE_MANAGER  
+            choice
+                prompt "Resource Package Type"
+                default LV_EXT_RES_STANDALONE
+                config LV_EXT_RES_STANDALONE
+                    bool "standalone resource package"
+
+                config LV_EXT_RES_NON_STANDALONE
+                    bool "non-standalone resource package"
+
+            endchoice
+            
+            if LV_EXT_RES_NON_STANDALONE
+                config LV_EXT_IMG_SEC_NAME
+                    string "image resource section name"
+                    default ".ROM3_IMG"
+            endif
+            
+            config LV_EXT_RES_DEFAULT_LANGUAGE
+                string "Default Language"
+                default "en_us"
+                
+        endif
+
+        menu "LVGL&LCD framebuffer configuration"
+
+            comment "------------1. Config LCD framebuffer on PSRAM-----------"
+            choice
+                prompt "LCD Framebuffer config"
+                default LCD_FB_USING_AUTO
+		help  
+                      LCD Framebuffer is used to buffer the LVGL framebuffer,
+		      and retain the full image of the LCD screen. This prevents
+		      tearing effect caused by slow rendering.
+
+                config LCD_FB_USING_AUTO
+                    bool "Auto"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LCD_FB_USING_ONE_UNCOMPRESSED
+                    bool "One screen sized buffer"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LCD_FB_USING_TWO_UNCOMPRESSED
+                    bool "Two screen sized buffer for ramless LCD typically"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LCD_FB_USING_ONE_COMPRESSED
+                    bool "One screen sized compressed buffer"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LCD_FB_USING_TWO_COMPRESSED
+                    bool "Two screen sized compressed buffer for ramless LCD typically"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LCD_FB_USING_NONE
+                    bool "No Framebuffer, flush LVGL buffer to LCD directly"
+            endchoice
+
+
+            comment "------------2. Config LVGL framebuffer on SRAM-----------"
+            choice
+                prompt "LVGL Framebuffer config"
+                default LV_FB_ONE_NOT_SCREEN_SIZE
+
+                config LV_FB_ONE_SCREEN_SIZE
+                    bool "One screen sized framebuffer"
+                    select BSP_USING_LCD_FRAMEBUFFER
+                config LV_FB_TWO_SCREEN_SIZE
+                    bool "TWO screen sized framebuffer"
+                config LV_FB_ONE_NOT_SCREEN_SIZE
+                    bool "One part of framebuffer (1*LV_FB_LINE_NUM)"
+                config LV_FB_TWO_NOT_SCREEN_SIZE
+                    bool "Two part of framebuffer (2*LV_FB_LINE_NUM)"
+            endchoice
+
+            config LV_FB_LINE_NUM
+                int "LVGL Frame Buffer Line Number(LV_FB_LINE_NUM)"
+                depends on LV_FB_ONE_NOT_SCREEN_SIZE ||  LV_FB_TWO_NOT_SCREEN_SIZE
+                default 100
+        endmenu
+    
+        config LV_RES_AUTO
+            bool "Automatic set resolution based on LCD config"
+            default y
+        config LV_HOR_RES_MAX
+            int "horizontal pixels"
+            depends on !LV_RES_AUTO
+            default 480
+        config LV_VER_RES_MAX
+            int "vertical pixels"
+            depends on !LV_RES_AUTO
+            default 272
+        config MEDIA_CACHE_SIZE
+            int "Media cache size"
+            default 4000000
+            help
+                Size of the dedicated memory heap used by ffmpeg_alloc().
+
+                When this value is greater than 0, FFmpeg allocations use an
+                independent media heap reserved in app memory.
+
+                When this value is 0, ffmpeg_alloc() falls back to the
+                app_anim_mem_alloc() path and shares memory with the animation/image
+                allocation pool.
+
+                This setting directly affects the memory space available to FFmpeg
+                decoding and whether FFmpeg memory is isolated from other app pools.
+    endmenu
