@@ -385,8 +385,7 @@ static rt_err_t _wait_token(struct rt_spi_device *device, uint8_t token)
         if (rt_tick_timeout(tick_start,
                             rt_tick_from_millisecond(CARD_WAIT_TOKEN_TIMES)))
         {
-            MSD_DEBUG("[err] wait data token 0x%02X timeout, last=0x%02X!\r\n",
-                      token, recv);
+            MSD_DEBUG("[err] wait data start token timeout!\r\n");
             return RT_ETIMEOUT;
         }
     } /* wati token */
@@ -430,7 +429,6 @@ static rt_err_t _read_block(struct rt_spi_device *device, void *buffer,
 {
     struct rt_spi_message message;
     rt_err_t result;
-    rt_uint32_t transferred;
 
     /* wati token */
     result = _wait_token(device, MSD_TOKEN_READ_START);
@@ -451,13 +449,7 @@ static rt_err_t _read_block(struct rt_spi_device *device, void *buffer,
         message.cs_take = message.cs_release = 0;
 
         /* transfer message */
-        transferred = device->bus->ops->xfer(device, &message);
-        if (transferred != block_size)
-        {
-            MSD_DEBUG("[err] read block short transfer: %u/%u\r\n",
-                      transferred, block_size);
-            return RT_EIO;
-        }
+        device->bus->ops->xfer(device, &message);
     } /* read data */
 
     /* get crc */
@@ -471,13 +463,7 @@ static rt_err_t _read_block(struct rt_spi_device *device, void *buffer,
         message.cs_take = message.cs_release = 0;
 
         /* transfer message */
-        transferred = device->bus->ops->xfer(device, &message);
-        if (transferred != sizeof(recv_buffer))
-        {
-            MSD_DEBUG("[err] read CRC short transfer: %u/%u\r\n", transferred,
-                      (rt_uint32_t)sizeof(recv_buffer));
-            return RT_EIO;
-        }
+        device->bus->ops->xfer(device, &message);
     } /* get crc */
 
     return RT_EOK;
@@ -574,9 +560,8 @@ static rt_err_t rt_msd_init(rt_device_t dev)
         struct rt_spi_configuration cfg;
         cfg.data_width = 8;
         cfg.mode = RT_SPI_MASTER | RT_SPI_MODE_3 |
-                   RT_SPI_MSB; /* SPI compatible mode used by this BSP */
-        /* SD physical layer initialization must not exceed 400 kHz. */
-        cfg.max_hz = 400 * 1000;
+                   RT_SPI_MSB;    /* SPI Compatible Modes 0 */
+        cfg.max_hz = 8 * 1000000; /* 24MHzbit/s */
         cfg.frameMode = RT_SPI_MOTO;
         rt_spi_configure(msd->spi_device, &cfg);
     }
@@ -1555,22 +1540,12 @@ static rt_err_t rt_msd_init(rt_device_t dev)
     /* config spi */
     {
         struct rt_spi_configuration cfg_d;
-        uint32_t data_hz = msd->max_clock;
-
-        /* Shared-board SPI routing is not reliable at the controller's
-         * physical 48 MHz limit. Keep the card within its advertised rate
-         * and use the driver's conservative board-level ceiling. */
-        if ((data_hz == 0U) || (data_hz > CARD_SAFE_HZ))
-        {
-            data_hz = CARD_SAFE_HZ;
-        }
         cfg_d.data_width = 8;
         cfg_d.mode = RT_SPI_MASTER | RT_SPI_MODE_3 |
-                     RT_SPI_MSB; /* SPI compatible mode used by this BSP */
-        cfg_d.max_hz = data_hz;
+                     RT_SPI_MSB;    /* SPI Compatible Modes 0 */
+        cfg_d.max_hz = CARD_MAX_HZ; /* 24MHzbit/s */
         cfg_d.frameMode = RT_SPI_MOTO;
         rt_spi_configure(msd->spi_device, &cfg_d);
-        MSD_DEBUG("[info] data SPI clock: %u Hz\r\n", data_hz);
     } /* config spi */
 
 #endif
@@ -1619,8 +1594,7 @@ static rt_size_t rt_msd_read(rt_device_t dev, rt_off_t pos, void *buffer,
                            response_r1, response);
         if ((result != RT_EOK) || (response[0] != MSD_RESPONSE_NO_ERROR))
         {
-            MSD_DEBUG("[err] CMD17 block #%d fail, result=%d, R1=0x%02X\r\n",
-                      pos, result, response[0]);
+            MSD_DEBUG("[err] read SINGLE_BLOCK #%d fail!\r\n", pos);
             size = 0;
             goto _exit;
         }
@@ -1629,8 +1603,7 @@ static rt_size_t rt_msd_read(rt_device_t dev, rt_off_t pos, void *buffer,
                              msd->geometry.bytes_per_sector);
         if (result != RT_EOK)
         {
-            MSD_DEBUG("[err] read SINGLE_BLOCK #%d data fail, result=%d\r\n",
-                      pos, result);
+            MSD_DEBUG("[err] read SINGLE_BLOCK #%d fail!\r\n", pos);
             size = 0;
         }
     }
@@ -1746,8 +1719,7 @@ static rt_size_t rt_msd_sdhc_read(rt_device_t dev, rt_off_t pos, void *buffer,
                            response_r1, response);
         if ((result != RT_EOK) || (response[0] != MSD_RESPONSE_NO_ERROR))
         {
-            MSD_DEBUG("[err] CMD17 block #%d fail, result=%d, R1=0x%02X\r\n",
-                      pos, result, response[0]);
+            MSD_DEBUG("[err] read SINGLE_BLOCK #%d fail!\r\n", pos);
             size = 0;
             goto _exit;
         }
@@ -1756,8 +1728,7 @@ static rt_size_t rt_msd_sdhc_read(rt_device_t dev, rt_off_t pos, void *buffer,
                              msd->geometry.bytes_per_sector);
         if (result != RT_EOK)
         {
-            MSD_DEBUG("[err] read SINGLE_BLOCK #%d data fail, result=%d\r\n",
-                      pos, result);
+            MSD_DEBUG("[err] read SINGLE_BLOCK #%d fail!\r\n", pos);
             size = 0;
         }
     }
