@@ -1,0 +1,5 @@
+menu "analog PA configuration"
+
+source "$SIFLI_SDK/t_sf32_display_hw_device/pa/ns4150b/Kconfig"
+
+endmenu

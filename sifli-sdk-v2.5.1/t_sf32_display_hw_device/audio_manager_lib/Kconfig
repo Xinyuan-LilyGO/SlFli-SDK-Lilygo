@@ -1,0 +1,5 @@
+config PKG_USING_AUDIO_MANAGER_LIB
+    bool "Enable AUDIO manager library"
+    default n
+    help
+        Audio manager support recording and playback.

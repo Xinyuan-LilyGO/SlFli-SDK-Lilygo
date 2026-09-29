@@ -1,0 +1,12 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = Glob('*.c')
+inc = []
+
+CPPPATH = [cwd]
+inc += [cwd]
+
+group = DefineGroup('infrared', src, depend = ['PKG_USING_INFRARED'], CPPPATH = inc)
+
+Return('group')

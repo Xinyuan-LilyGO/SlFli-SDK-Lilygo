@@ -239,6 +239,19 @@ config RT_USING_SPI
                 default -1 
             endif
 
+            config RT_USING_SPI_MSD_CS_PIN
+                bool "Manually control the CS pin"
+                default n
+
+            if RT_USING_SPI_MSD_CS_PIN
+                config MSD_SPI_CS_PIN
+                    int "SPI SD Card CS pin number"
+                    default 43
+                    help
+                        Set the CS pin number for SPI SD card.
+                        This pin will be used as chip select for SD card.
+            endif
+
         config MSD_SPI_BUS_NAME
             string "SPI bus name for MSD driver"
             default "spi1"

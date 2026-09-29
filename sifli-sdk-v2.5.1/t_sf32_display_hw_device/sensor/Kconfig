@@ -1,0 +1,7 @@
+menu "sensors configuration"
+
+source "$SIFLI_SDK/t_sf32_display_hw_device/sensor/bhi260ap/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/sensor/bme280/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/sensor/icm20948/Kconfig"
+
+endmenu

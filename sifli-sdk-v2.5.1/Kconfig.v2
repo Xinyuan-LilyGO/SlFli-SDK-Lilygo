@@ -13,6 +13,7 @@ config KCONFIG_V2
 source "$SIFLI_SDK/rtos/Kconfig"
 source "$SIFLI_SDK/middleware/Kconfig"
 source "$SIFLI_SDK/external/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/Kconfig"
 osource "$PKGS_ROOT/packages/Kconfig"
 
 menu "Build Options"
