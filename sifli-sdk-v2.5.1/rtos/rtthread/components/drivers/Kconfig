@@ -252,6 +252,13 @@ config RT_USING_SPI
                         This pin will be used as chip select for SD card.
             endif
 
+            config MSD_SPI_MAX_HZ
+                int "Maximum SPI SD Card data clock (Hz)"
+                default 12000000
+                help
+                    Limit the SPI clock after card initialization. The card's
+                    advertised transfer rate is also honored.
+
         config MSD_SPI_BUS_NAME
             string "SPI bus name for MSD driver"
             default "spi1"
