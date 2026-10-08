@@ -9,10 +9,10 @@ extern "C"
 {
 #endif
 
-    int8_t infrared_init(void);
-    void infrared_pwm_set(uint32_t period, uint32_t pulse);
-    void infrared_pwm_enable(void);
-    void infrared_pwm_disable(void);
+    rt_err_t infrared_init(void);
+    rt_err_t infrared_pwm_set(uint32_t period, uint32_t pulse);
+    rt_err_t infrared_pwm_enable(void);
+    rt_err_t infrared_pwm_disable(void);
 
 #ifdef __cplusplus__
 }

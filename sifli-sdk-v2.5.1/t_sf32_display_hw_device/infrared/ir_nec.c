@@ -3,58 +3,70 @@
 #include "rthw.h"
 #include <rtdevice.h>
 
-// 时间宏定义（单位：微秒）
-#define NEC_HIGH_US (9000)     // 引导码高电平 9ms
-#define NEC_LOW_US (4500)      // 引导码低电平 4.5ms
-#define NEC_BIT_0_HIGH (560)   // 位 "0" 高电平 560us
-#define NEC_BIT_0_LOW (560)    // 位 "0" 低电平 560us
-#define NEC_BIT_1_HIGH (560)   // 位 "1" 高电平 560us
-#define NEC_BIT_1_LOW (1690)   // 位 "1" 低电平 1.69ms
-#define NEC_REPEAT_HIGH (9000) // 重复码高电平 9ms
-#define NEC_REPEAT_LOW (2250)  // 重复码低电平 2.25ms
-#define NEC_END_HIGH (560)     // 结束位高电平 560us
+#define NEC_HIGH_US (9000)
+#define NEC_LOW_US (4500)
+#define NEC_BIT_0_HIGH (560)
+#define NEC_BIT_0_LOW (560)
+#define NEC_BIT_1_HIGH (560)
+#define NEC_BIT_1_LOW (1690)
+#define NEC_REPEAT_HIGH (9000)
+#define NEC_REPEAT_LOW (2250)
+#define NEC_END_HIGH (560)
 
 static void us_delay(uint32_t us)
 {
     rt_hw_us_delay(us);
 }
 
-// 发送一个电平（通过开关 PWM 实现载波发送）
-static void send_level(int level, uint32_t duration_us)
+static rt_err_t send_level(int level, uint32_t duration_us)
 {
+    rt_err_t result;
+
     if (level)
     {
-        infrared_pwm_enable(); // 高电平 -> 发射 38kHz 载波
+        result = infrared_pwm_enable();
     }
     else
     {
-        infrared_pwm_disable(); // 低电平 -> 关闭载波
+        result = infrared_pwm_disable();
     }
+
+    if (result != RT_EOK)
+    {
+        return result;
+    }
+
     us_delay(duration_us);
+    return RT_EOK;
 }
 
-// 发送 NEC 的一个位（0 或 1）
-static void send_bit(uint8_t bit)
+static rt_err_t send_bit(uint8_t bit)
 {
-    if (bit)
+    rt_err_t result;
+
+    result = send_level(1, bit ? NEC_BIT_1_HIGH : NEC_BIT_0_HIGH);
+    if (result != RT_EOK)
     {
-        send_level(1, NEC_BIT_1_HIGH);
-        send_level(0, NEC_BIT_1_LOW);
+        return result;
     }
-    else
-    {
-        send_level(1, NEC_BIT_0_HIGH);
-        send_level(0, NEC_BIT_0_LOW);
-    }
+
+    return send_level(0, bit ? NEC_BIT_1_LOW : NEC_BIT_0_LOW);
 }
 
-// 发送 8 位数据（低位在前）
-static void send_byte(uint8_t data)
+static rt_err_t send_byte(uint8_t data)
 {
+    rt_err_t result;
+
     for (int i = 0; i < 8; i++)
     {
-        send_bit((data >> i) & 0x01);
+        result = send_bit((data >> i) & 0x01);
+        if (result != RT_EOK)
+        {
+            return result;
+        }
     }
+
+    return RT_EOK;
 }
 
 int ir_nec_init(void)
@@ -64,39 +76,54 @@ int ir_nec_init(void)
 
 int ir_nec_send(uint8_t address, uint8_t command)
 {
+    rt_err_t result;
+
 #ifdef RT_USING_PM
-    rt_pm_request(PM_SLEEP_MODE_IDLE); // 防止发送中途深睡导致时序错乱
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
 #endif
-    // 1. 发送引导码
-    send_level(1, NEC_HIGH_US);
-    send_level(0, NEC_LOW_US);
 
-    // 2. 发送地址码和地址反码
-    send_byte(address);
-    send_byte(~address);
+    result = send_level(1, NEC_HIGH_US);
+    if (result == RT_EOK)
+    {
+        result = send_level(0, NEC_LOW_US);
+    }
+    if (result == RT_EOK)
+    {
+        result = send_byte(address);
+    }
+    if (result == RT_EOK)
+    {
+        result = send_byte((uint8_t)~address);
+    }
+    if (result == RT_EOK)
+    {
+        result = send_byte(command);
+    }
+    if (result == RT_EOK)
+    {
+        result = send_byte((uint8_t)~command);
+    }
+    if (result == RT_EOK)
+    {
+        result = send_level(1, NEC_END_HIGH);
+    }
 
-    // 3. 发送命令码和命令反码
-    send_byte(command);
-    send_byte(~command);
-
-    // 4. 发送结束位（可选，有些接收器不要求）
-    send_level(1, NEC_END_HIGH);
-    send_level(0, 0); // 关闭载波
+    infrared_pwm_disable();
 #ifdef RT_USING_PM
     rt_pm_release(PM_SLEEP_MODE_IDLE);
 #endif
-    return 0;
+    return result;
 }
 
 void ir_nec_send_repeat(void)
 {
 #ifdef RT_USING_PM
-    rt_pm_request(PM_SLEEP_MODE_IDLE); // 防止发送中途深睡导致时序错乱
+    rt_pm_request(PM_SLEEP_MODE_IDLE);
 #endif
     send_level(1, NEC_REPEAT_HIGH);
     send_level(0, NEC_REPEAT_LOW);
     send_level(1, NEC_END_HIGH);
-    send_level(0, 0);
+    infrared_pwm_disable();
 #ifdef RT_USING_PM
     rt_pm_release(PM_SLEEP_MODE_IDLE);
 #endif
