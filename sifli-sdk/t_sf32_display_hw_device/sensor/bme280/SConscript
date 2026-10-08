@@ -1,0 +1,18 @@
+from building import *
+Import('rtconfig')
+
+src   = []
+cwd   = GetCurrentDir()
+
+src += Glob('bme280.c')
+
+if GetDepend('BME280_USING_RT_SENSOR'):
+    src += Glob('bme280_rt_sensor.c')
+
+# add bme280 include path.
+path  = [cwd]
+
+# add src and include to group.
+group = DefineGroup('bme280', src, depend = ['PKG_USING_BME280'], CPPPATH = path)
+
+Return('group')

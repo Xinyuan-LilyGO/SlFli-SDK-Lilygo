@@ -28,6 +28,6 @@ config L76K_RT_BAUDRATE
 endif
 
 source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/gps/TinyGPS/Kconfig"
-source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/gps/lwgps2rtt/Kconfig"
+# source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/gps/lwgps2rtt/Kconfig"
 
 endif
