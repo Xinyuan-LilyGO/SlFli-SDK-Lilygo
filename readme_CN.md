@@ -26,10 +26,27 @@
 
 ## 🛠️ 环境搭建与配置
 
-### 1. 获取 SDK
+### VSCODE 插件（推荐）
+注：必须选择LILYGO-SIFLI-SDK软件包才会支持 `t-display-SF32`的板卡选项，使用官方的SDK不支持当前硬件
+#### 1. 获取 SDK
 下载本 SDK 并解压到任意目录，例如：`D:\T-Display-SF32\SDK`。
+#### 2. 安装vscode插件
+在VSCODE插件搜索 `sifli-sdk-codekit` 安装。
+![image](./image/vscode_sifli_sdk.png)
+#### 3. SDK导入
+点击SDK管理，点击导入SDK,填好SDK的文件路径，点击开始导入，等待安装完成。
+![image](./image/vscode_sifli_sdk_manger.png)
+#### 4.新建工程
+打开 `sifli-sdk-codekit` 插件，点击新建工程选项,会弹出可用的例程，搜索一下你想编译的例程，点击之后之后就创建一个工程文件。
+![alt text](./image/vscode_sifli_sdk_build_prj.png)
+#### 5.配置board板卡
+打开新建的工程，sifli插件会自动识别当前的项目，在左下角出现SDK、芯片模组、串口、编译、烧录、菜单等选项，点击芯片模组选择 `t-display-SF32` 板卡，选择你的设备串口，之后可以正常编译和烧录固件。
+![alt text](./image/vscode_sifli_sdk_config.png)
 
-### 2. 配置 PowerShell 终端环境
+### 终端
+#### 1. 获取 SDK
+下载本 SDK 并解压到任意目录，例如：`D:\T-Display-SF32\SDK`。
+#### 2. 配置 PowerShell 终端环境
 1. 打开 Windows Terminal，按下 `Ctrl + ','` 打开设置。
 2. 点击“添加新的配置文件”，选择“复制 Windows PowerShell”。
 3. 修改新配置文件的设置：
@@ -39,40 +56,36 @@
      ```powershell
      %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoExit -File D:\T-Display-SF32\SDK\sifli-sdk\export.ps1
      ```
-
 ![image](./image/set_powershell.png)
 ![image](./image/set_powershell2.png)
 ---
-
-## 🚀 构建与烧录
+#### 3. 构建与烧录
 
 请使用上一步配置好的 `SiFli-SDK` 终端执行以下操作：
 
-### 1. 进入工程目录
+##### 3.1 进入工程目录
 ```powershell
 cd sifli-sdk\example\rt_driver\project
 ```
 
-### 2. 编译工程
+##### 3.2 编译工程
 使用以下命令进行编译（`-j16` 表示使用16线程加速编译，可根据电脑配置调整）：
 ```powershell
 scons --board=t-display-sf32_hcpu -j16
 ```
 ![image](./image/build1.png)
 
-### 3. 烧录固件
+##### 3.3 烧录固件
 编译完成后，执行以下批处理文件进入烧录模式，然后根据提示输入设备的端口号即可完成烧录：
 ```powershell
 build_t-display-sf32_hcpu\uart_download.bat
 ```
 ![image](./image/bulid.png)
-
-### 4. 菜单配置（可选）
+#### 4 菜单配置（可选）
 如需修改工程配置，可运行以下命令打开 menuconfig 界面：
 ```powershell
 scons --board=t-display-sf32 --menuconfig
 ```
-
 ---
 
 ## 📜 许可证信息
