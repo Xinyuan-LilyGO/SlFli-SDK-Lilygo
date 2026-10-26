@@ -1,0 +1,81 @@
+menu "SiFli Built-in Components"
+    choice
+        prompt "HAL Assert Type"
+        default BSP_USING_EMPTY_ASSERT
+        config BSP_USING_FULL_ASSERT
+            bool "Print and loop"
+        config BSP_USING_LOOP_ASSERT
+            bool "Endless Loop"
+        config BSP_USING_EMPTY_ASSERT
+            bool "Empty"
+    endchoice
+
+    source "$SIFLI_SDK/middleware/acpu_ctrl/Kconfig"
+    source "$SIFLI_SDK/middleware/app_fwk/Kconfig"
+    source "$SIFLI_SDK/middleware/audio/Kconfig"
+    source "$SIFLI_SDK/middleware/audio/anyka/Kconfig"
+    source "$SIFLI_SDK/middleware/barcode128/Kconfig"
+    source "$SIFLI_SDK/middleware/battery/Kconfig"
+    rsource "bluetooth/Kconfig"
+    source "$SIFLI_SDK/middleware/rt_bt_app_core/Kconfig"
+
+    config APP_BSP_TEST
+        bool "BSP Test"
+        default n
+
+    source "$SIFLI_SDK/middleware/button/Kconfig"
+    source "$SIFLI_SDK/middleware/cell_transform/Kconfig"    
+    source "$SIFLI_SDK/middleware/cmsis_dsp/Kconfig"
+    source "$SIFLI_SDK/middleware/context_backup/Kconfig"
+    source "$SIFLI_SDK/middleware/code_convert/Kconfig"
+    source "$SIFLI_SDK/middleware/coredump/Kconfig"
+    source "$SIFLI_SDK/middleware/cpu_usage_profiler/Kconfig"
+    source "$SIFLI_SDK/middleware/crypto/Kconfig"
+    source "$SIFLI_SDK/middleware/crypt_block_dev/Kconfig"
+    source "$SIFLI_SDK/middleware/data_bus/Kconfig"
+    source "$SIFLI_SDK/middleware/dfu_pan/Kconfig"
+    source "$SIFLI_SDK/middleware/dfu_uart/Kconfig"
+    source "$SIFLI_SDK/middleware/dfu/Kconfig"
+    source "$SIFLI_SDK/middleware/dfu_v2/Kconfig"
+    source "$SIFLI_SDK/middleware/elm_rw/Kconfig"
+    source "$SIFLI_SDK/middleware/ezipa_dec/Kconfig"
+    source "$SIFLI_SDK/middleware/file_logger/Kconfig"
+    source "$SIFLI_SDK/middleware/gauss_blur/Kconfig"
+    source "$SIFLI_SDK/middleware/ipc_queue/Kconfig"
+
+    config USING_LIBRARY_ONLY
+        bool "Use library binary instead of source"
+        default n
+
+    config BSP_USING_LVGL_INPUT_AGENT
+        bool "Input Agent for LittlevGL"
+        depends on PKG_USING_LITTLEVGL2RTT
+        default n
+
+    config LVSF_USING_SWITCHANIM
+        bool
+        default n
+
+   
+    source "$SIFLI_SDK/middleware/metrics_collector/Kconfig"
+    source "$SIFLI_SDK/middleware/mod_installer/Kconfig"
+    source "$SIFLI_SDK/middleware/nvm_storage/Kconfig"
+    source "$SIFLI_SDK/middleware/profiler/Kconfig"
+    source "$SIFLI_SDK/middleware/partition_table/Kconfig"
+    source "$SIFLI_SDK/middleware/system/Kconfig"
+
+    config USING_SEC_ENV
+        bool "Security Environment"
+        depends on USING_IPC_QUEUE
+        default n
+
+    source "$SIFLI_SDK/middleware/section_var/Kconfig"    
+    source "$SIFLI_SDK/middleware/boot/Kconfig"
+    source "$SIFLI_SDK/middleware/share_prefs/Kconfig"
+
+    config SF_WLAN_COEX
+        depends on BF0_LCPU
+        bool "WiFi Coexistence with Bluetooth"
+        default n
+
+endmenu

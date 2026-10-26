@@ -1,0 +1,33 @@
+menuconfig PKG_USING_L76K
+    bool "Enable L76K GPS"
+    default n
+    select PKG_USING_TINYGPS
+    help
+        Enable L76K GPS support through UART mux.
+
+if PKG_USING_L76K
+
+config L76K_USING_RT_SENSOR
+    bool "Register L76K in RT-Thread Sensor framework"
+    default n
+    select RT_USING_SENSOR
+    select PKG_USING_XL9555
+
+if L76K_USING_RT_SENSOR
+config L76K_RT_SENSOR_NAME
+    string "RT-Thread Sensor device suffix"
+    default "l76k"
+
+config L76K_RT_UART_NAME
+    string "UART device name used by the adapter"
+    default "uart2"
+
+config L76K_RT_BAUDRATE
+    int "GPS baud rate"
+    default 115200
+endif
+
+source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/gps/TinyGPS/Kconfig"
+source "$SIFLI_SDK/t_sf32_display_hw_device/uart_mux/gps/lwgps2rtt/Kconfig"
+
+endif

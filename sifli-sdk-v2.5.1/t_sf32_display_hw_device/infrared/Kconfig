@@ -1,0 +1,16 @@
+config PKG_USING_INFRARED
+    bool "Enable INFRARED_MYSELF library"
+    default n
+    select BSP_USING_PWM
+    select BSP_USING_PWMT2
+
+    if  PKG_USING_INFRARED
+    
+        config INFRARED_PWM_NAME
+            string "irfrared pwm name"
+            default "pwmt2"
+    
+        config INFRARED_PWM_CHANNEL
+            int "irfrared pwm channel"
+            default 1
+    endif

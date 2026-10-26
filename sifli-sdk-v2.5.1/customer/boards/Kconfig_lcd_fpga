@@ -1,0 +1,169 @@
+if BSP_USING_LCD
+
+    choice
+        prompt "Select LCD Module"
+        default LCD_USING_TYPE1
+        depends on BF0_HCPU
+        depends on BSP_USING_RTTHREAD        
+        config LCD_USING_TYPE1
+            bool "240*320 8080"
+            select TSC_USING_ADS7846
+            select LCD_USING_ILI9341
+
+        config LCD_USING_ROUND_TYPE1
+            bool "1.3 round LCD SPI"
+            select TSC_USING_IT7257
+            select LCD_USING_ST7789V
+            select LCD_USING_ST7789H2
+
+            if LCD_USING_ROUND_TYPE1
+                config ROW_OFFSET_PLUS
+                int "Start line offset"
+                default 40
+            endif
+
+        config LCD_USING_ROUND_TYPE2
+            bool "1.39 round 454RGB*454 DSI LCD"
+            select TSC_USING_TMA525B
+            select LCD_USING_RM69330
+            if LCD_USING_ROUND_TYPE2
+                config ROW_OFFSET_PLUS
+                int "Start line offset"
+                default 0
+            endif
+
+        config LCD_USING_ROUND_TYPE3
+            bool "1.2 round JDI LCD"
+            select LCD_USING_JDI387A
+
+        config LCD_USING_ROUND_TYPE4
+            bool "1.32 round 360*360 LCD"
+            select LCD_USING_GC9C01
+
+        config LCD_USING_RECT_TYPE
+            bool "1.39 rect 386RGB*448 DSI LCD"
+            select LCD_USING_RM69090
+            if LCD_USING_RECT_TYPE
+                config ROW_OFFSET_PLUS
+                int "Start line offset"
+                default 0
+            endif
+
+        config LCD_USING_SQ_TYPE1
+            bool "1.5 sqaure LCD SPI"
+            select TSC_USING_FT6336
+            select LCD_USING_ST7789V
+            select LCD_USING_ST7789H2
+
+        config LCD_USING_SQ_TYPE2
+            bool "1.3 sqaure LCD SPI2L"
+            select TSC_USING_FT6336
+            select LCD_USING_ST7789V
+            select LCD_USING_ST7789H2
+
+        config LCD_USING_ATK7016_FPGA
+            bool "ALIENTEK 7INCH RGB DPI TFTLCD"
+            select LCD_USING_ATK7016
+            select BSP_LCDC_USING_DPI
+
+        config LCD_USING_EPD_8BIT_OPM060DA_FPGA
+            bool "6inch EPD OPM060DA 8bit"
+            select LCD_USING_EPD_OPM060DA
+            select BSP_LCDC_USING_DIRECT_EPD
+
+        config LCD_USING_FPGA_ED_LB5XSPI19701
+            bool "1.97 rect QAD-SPI LCD(ED-LB5xSPI19701)"
+            select TSC_USING_FT3169 if BSP_USING_TOUCHD
+            select LCD_USING_FT2308
+            select BSP_LCDC_USING_QADSPI
+            if LCD_USING_FPGA_ED_LB5XSPI19701
+               config LCD_FT2308_VSYNC_ENABLE
+                    bool "Enable LCD VSYNC (TE signal)"
+                    def_bool y
+            endif
+
+        config LCD_USING_FPGA_ED_LB5XSPI19701_DDR
+            bool "1.97 rect DDR QAD-SPI LCD(ED-LB5xSPI19701)"
+            select TSC_USING_FT3169 if BSP_USING_TOUCHD
+            select LCD_USING_FT2308
+            select BSP_LCDC_USING_DDR_QADSPI
+            if LCD_USING_FPGA_ED_LB5XSPI19701_DDR
+               config LCD_FT2308_VSYNC_ENABLE
+                    bool "Enable LCD VSYNC (TE signal)"
+                    def_bool y
+            endif
+
+    endchoice
+    
+    config LCD_HOR_RES_MAX
+        int
+        default 240 if LCD_USING_TYPE1
+        default 240 if LCD_USING_ROUND_TYPE1
+        default 240 if LCD_USING_ROUND_TYPE2
+        default 240 if LCD_USING_ROUND_TYPE3
+        default 360 if LCD_USING_ROUND_TYPE4
+        default 240 if LCD_USING_RECT_TYPE
+        default 240 if LCD_USING_SQ_TYPE1
+        default 240 if LCD_USING_SQ_TYPE2
+        default 1024 if LCD_USING_ATK7016
+        default 1024 if LCD_USING_EPD_8BIT_OPM060DA_FPGA
+        default 410 if LCD_USING_FPGA_ED_LB5XSPI19701
+        default 410 if LCD_USING_FPGA_ED_LB5XSPI19701_DDR
+        
+    config LCD_VER_RES_MAX
+        int
+        default 240 if LCD_USING_TYPE1
+        default 240 if LCD_USING_ROUND_TYPE1
+        default 240 if LCD_USING_ROUND_TYPE2
+        default 240 if LCD_USING_ROUND_TYPE3
+        default 360 if LCD_USING_ROUND_TYPE4
+        default 240 if LCD_USING_RECT_TYPE
+        default 240 if LCD_USING_SQ_TYPE1
+        default 240 if LCD_USING_SQ_TYPE2
+        default 600 if LCD_USING_ATK7016
+        default 758 if LCD_USING_EPD_8BIT_OPM060DA_FPGA
+        default 494 if LCD_USING_FPGA_ED_LB5XSPI19701
+        default 494 if LCD_USING_FPGA_ED_LB5XSPI19701_DDR
+        
+    config LCD_DPI
+        int
+        default 50 if LCD_USING_TYPE1
+        default 50 if LCD_USING_ROUND_TYPE1
+        default 50 if LCD_USING_ROUND_TYPE2 
+        default 50 if LCD_USING_ROUND_TYPE3 
+        default 50 if LCD_USING_ROUND_TYPE4 
+        default 50 if LCD_USING_RECT_TYPE 
+        default 226 if LCD_USING_SQ_TYPE1
+        default 260 if LCD_USING_SQ_TYPE2
+        default 100 if LCD_USING_ATK7016_DPI
+        default 300 if LCD_USING_EPD_8BIT_OPM060DA_FPGA
+        default 315 if LCD_USING_FPGA_ED_LB5XSPI19701
+        default 315 if LCD_USING_FPGA_ED_LB5XSPI19701_DDR
+
+    config BSP_USING_TOUCHD
+        bool "Enable touch device"
+        default n
+
+if BSP_USING_TOUCHD
+    menu "Touch config"
+        config BSP_TOUCH_IRQ_FROM_DATASVC
+            bool "Touch IRQ using data service in LCPU"
+            default n
+            depends on BSP_USING_DATA_SVC && SOC_SF32LB55X
+
+
+        config TSC_MODE
+            int "TouchScreen mode"
+            default 1
+        config ROTATE_LEFT
+            int "Rotate angle to left with 0 90 180 270"
+            default 0
+
+        config TOUCH_DEVICE_NAME
+            string "TOUCH DEVICE NAME"
+            default "spi3" if TSC_USING_ADS7846
+            default "i2c1" if TSC_USING_IT7257
+            default "i2c1" if TSC_USING_FT6336
+    endmenu
+endif
+endif
