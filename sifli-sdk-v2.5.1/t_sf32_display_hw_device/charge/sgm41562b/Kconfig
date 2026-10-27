@@ -1,6 +1,5 @@
 config PKG_USING_SGM41562B
     bool "Enable SGM41562B PM."
-    default n
     
     if  PKG_USING_SGM41562B
     
@@ -14,7 +13,6 @@ config PKG_USING_SGM41562B
 
         config SGM41562B_USING_RT_DEVICE
             bool "Register SGM41562B as an RT-Thread device"
-            default n
 
         if SGM41562B_USING_RT_DEVICE
             config SGM41562B_RT_DEVICE_NAME

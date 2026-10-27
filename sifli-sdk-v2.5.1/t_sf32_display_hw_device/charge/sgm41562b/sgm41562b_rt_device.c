@@ -18,8 +18,8 @@ static rt_err_t sgm41562b_device_ensure_ready(void)
     {
         g_charger = sgm41562b_get_handle();
         if (g_charger == RT_NULL)
-            g_charger = sgm41562b_init(SGM41562B_I2C_BUS_NAME,
-                                       SGM41562B_IRQ_PIN);
+            g_charger =
+                sgm41562b_init(SGM41562B_I2C_BUS_NAME, SGM41562B_IRQ_PIN);
     }
     rt_mutex_release(&g_init_lock);
     return (g_charger != RT_NULL) ? RT_EOK : -RT_ERROR;
@@ -61,11 +61,9 @@ static rt_size_t sgm41562b_device_read(rt_device_t device, rt_off_t position,
     if (sgm41562b_get_fault_status(g_charger, &status->fault_status) != RT_EOK)
         return 0;
 
-    status->charge_status =
-        (status->system_status & SGM41562B_CHG_STAT_MASK) >>
-        SGM41562B_CHG_STAT_SHIFT;
-    status->power_good =
-        (status->system_status & SGM41562B_PG_STAT) ? 1U : 0U;
+    status->charge_status = (status->system_status & SGM41562B_CHG_STAT_MASK) >>
+                            SGM41562B_CHG_STAT_SHIFT;
+    status->power_good = (status->system_status & SGM41562B_PG_STAT) ? 1U : 0U;
     return 1;
 }
 
@@ -84,46 +82,38 @@ static rt_err_t sgm41562b_device_control(rt_device_t device, int command,
     switch (command)
     {
     case SGM41562B_RT_CTRL_GET_DEVICE_ID:
-        return (args != RT_NULL)
-                   ? sgm41562b_get_device_id(g_charger, args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_get_device_id(g_charger, args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_GET_STATUS:
-        return (args != RT_NULL)
-                   ? sgm41562b_get_system_status(g_charger, args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_get_system_status(g_charger, args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_GET_FAULT:
-        return (args != RT_NULL)
-                   ? sgm41562b_get_fault_status(g_charger, args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_get_fault_status(g_charger, args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_ENABLE_CHARGING:
         return (args != RT_NULL)
-                   ? sgm41562b_enable_charging(g_charger,
-                                               *(rt_bool_t *)args)
+                   ? sgm41562b_enable_charging(g_charger, *(rt_bool_t *)args)
                    : -RT_EINVAL;
     case SGM41562B_RT_CTRL_SET_HIZ:
         return (args != RT_NULL)
                    ? sgm41562b_set_hiz_mode(g_charger, *(rt_bool_t *)args)
                    : -RT_EINVAL;
     case SGM41562B_RT_CTRL_SET_INPUT_VOLTAGE:
-        return (args != RT_NULL)
-                   ? sgm41562b_set_input_voltage_limit(
-                         g_charger, *(rt_uint16_t *)args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_set_input_voltage_limit(
+                                       g_charger, *(rt_uint16_t *)args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_SET_INPUT_CURRENT:
-        return (args != RT_NULL)
-                   ? sgm41562b_set_input_current_limit(
-                         g_charger, *(rt_uint16_t *)args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_set_input_current_limit(
+                                       g_charger, *(rt_uint16_t *)args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_SET_CHARGE_VOLTAGE:
-        return (args != RT_NULL)
-                   ? sgm41562b_set_charge_voltage(g_charger,
-                                                  *(rt_uint16_t *)args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_set_charge_voltage(
+                                       g_charger, *(rt_uint16_t *)args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_SET_CHARGE_CURRENT:
-        return (args != RT_NULL)
-                   ? sgm41562b_set_charge_current(g_charger,
-                                                  *(rt_uint16_t *)args)
-                   : -RT_EINVAL;
+        return (args != RT_NULL) ? sgm41562b_set_charge_current(
+                                       g_charger, *(rt_uint16_t *)args)
+                                 : -RT_EINVAL;
     case SGM41562B_RT_CTRL_WATCHDOG_RESET:
         return sgm41562b_watchdog_reset(g_charger);
     case SGM41562B_RT_CTRL_SOFTWARE_RESET:
@@ -136,8 +126,7 @@ static rt_err_t sgm41562b_device_control(rt_device_t device, int command,
 }
 
 #ifdef RT_USING_DEVICE_OPS
-static const struct rt_device_ops g_sgm41562b_ops =
-{
+static const struct rt_device_ops g_sgm41562b_ops = {
     .init = sgm41562b_device_init,
     .open = sgm41562b_device_open,
     .close = sgm41562b_device_close,
@@ -164,8 +153,27 @@ int rt_hw_sgm41562b_device_register(void)
     g_charger_device.read = sgm41562b_device_read;
     g_charger_device.control = sgm41562b_device_control;
 #endif
-    return rt_device_register(&g_charger_device,
-                              SGM41562B_RT_DEVICE_NAME,
+    return rt_device_register(&g_charger_device, SGM41562B_RT_DEVICE_NAME,
                               RT_DEVICE_FLAG_RDWR);
 }
 INIT_COMPONENT_EXPORT(rt_hw_sgm41562b_device_register);
+
+static int charger_init(void)
+{
+    rt_device_t device;
+    rt_err_t result;
+
+    rt_kprintf("charger_init enter");
+    device = rt_device_find(SGM41562B_RT_DEVICE_NAME);
+    if (device == RT_NULL)
+    {
+        rt_kprintf("device '%s' not found", SGM41562B_RT_DEVICE_NAME);
+        return -RT_ENOSYS;
+    }
+
+    result = rt_device_open(device, RT_DEVICE_OFLAG_RDWR);
+    rt_kprintf("open '%s' result: %d", SGM41562B_RT_DEVICE_NAME, result);
+
+    return result;
+}
+INIT_APP_EXPORT(charger_init);

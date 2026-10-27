@@ -14,3 +14,18 @@ config LCD_PWM_BACKLIGHT_CHANEL_NUM
     int
     default 4
 
+if BF0_HCPU && BSP_USING_RTTHREAD && RT_USING_DEVICE
+
+    config PKG_USING_SGM41562B
+        bool
+        default y
+    
+    if PKG_USING_SGM41562B
+    
+    config SGM41562B_USING_RT_DEVICE
+        bool
+        default y
+    
+    endif
+
+endif
